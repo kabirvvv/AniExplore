@@ -227,7 +227,7 @@ export default function App() {
               </div>
               <button onClick={() => setAiOpen(true)} className="flex items-center gap-2.5 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-bold text-sm transition-all shadow-2xl shadow-indigo-600/20 active:scale-95 group whitespace-nowrap">
                 <Sparkles className="w-4 h-4 group-hover:animate-pulse" />
-                <span className="hidden md:inline">Ask Grok</span>
+                <span className="hidden md:inline">Ask AI</span>
               </button>
             </div>
           </div>
@@ -331,8 +331,8 @@ export default function App() {
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-600/20"><Sparkles className="w-6 h-6 text-white" /></div>
                 <div>
-                  <h3 className="font-black text-xl text-white uppercase tracking-tighter leading-none">Grok Consultant</h3>
-                  <p className="text-[10px] text-indigo-400 font-black uppercase tracking-[0.3em] mt-1">Powered by xAI Grok-2</p>
+                  <h3 className="font-black text-xl text-white uppercase tracking-tighter leading-none">AI Consultant</h3>
+                  <p className="text-[10px] text-indigo-400 font-black uppercase tracking-[0.3em] mt-1">Powered by Google Gemini</p>
                 </div>
               </div>
               <button onClick={() => setAiOpen(false)} className="p-3 hover:bg-white/10 rounded-2xl transition-colors group">
@@ -357,7 +357,7 @@ export default function App() {
                       <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: "-0.15s" }}></div>
                       <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce"></div>
                     </div>
-                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Grok Processing...</span>
+                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Gemini Processing...</span>
                   </div>
                 </div>
               )}
@@ -365,7 +365,7 @@ export default function App() {
             </div>
             <form onSubmit={handleAiSearch} className="p-8 border-t border-white/5 bg-white/5 backdrop-blur-xl">
               <div className="relative group">
-                <input type="text" placeholder="Ask Grok about anime..." value={aiInput} onChange={(e) => setAiInput(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-[1.5rem] py-5 pl-6 pr-16 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-sm font-medium placeholder:text-gray-700 group-focus-within:bg-white/10" />
+                <input type="text" placeholder="Ask AI about anime..." value={aiInput} onChange={(e) => setAiInput(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-[1.5rem] py-5 pl-6 pr-16 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-sm font-medium placeholder:text-gray-700 group-focus-within:bg-white/10" />
                 <button type="submit" disabled={isTyping} className="absolute right-3 top-1/2 -translate-y-1/2 p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-500 transition-all active:scale-90 shadow-xl disabled:opacity-50">
                   <Send className="w-5 h-5" />
                 </button>
