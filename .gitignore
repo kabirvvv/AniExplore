@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Environment — NEVER commit this
+.env
+.env.local
+.env.*.local
+
+# Build
+dist/
+.vite/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
