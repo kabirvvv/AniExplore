@@ -9,7 +9,7 @@ import {
 const API = {
   anime: "/api/anime",
   topAnime: "/api/top-anime",
-  grok: "/api/grok",
+  grok: "/api/gemini",
 };
 
 const GENRE_MAP = {
