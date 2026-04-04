@@ -13,55 +13,51 @@ export default async function handler(req, res) {
 
     if (!message) return res.status(400).json({ error: "message is required." });
 
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) return res.status(500).json({ error: "GEMINI_API_KEY not set." });
+    const key = process.env.XAI_API_KEY;
+    if (!key) return res.status(500).json({ error: "XAI_API_KEY not set." });
 
-    // Build full conversation history for Gemini so it has memory of the chat
-    const contents = [
-      // Include previous messages (skip the initial assistant greeting at index 0)
-      ...history
-        .slice(1) // skip the hardcoded "System Online" greeting
-        .map((m) => ({
-          role: m.role === "user" ? "user" : "model",
-          parts: [{ text: m.text }],
-        })),
+    // Build conversation history for multi-turn memory
+    const messages = [
+      {
+        role: "system",
+        content:
+          "You are a professional Anime Consultant named AniExplore AI. Keep responses concise and helpful. When recommending anime, mention titles, genres, and why they match. Use **bold** for anime titles.",
+      },
+      // Include previous messages (skip the hardcoded greeting at index 0)
+      ...history.slice(1).map((m) => ({
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.text,
+      })),
       // Add the new user message
-      { role: "user", parts: [{ text: message }] },
+      { role: "user", content: message },
     ];
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: {
-            parts: [
-              {
-                text: "You are a professional Anime Consultant named AniExplore AI. Keep responses concise and helpful. When recommending anime, mention titles, genres, and why they match. Use **bold** for anime titles.",
-              },
-            ],
-          },
-          contents,
-          generationConfig: { maxOutputTokens: 800 },
-        }),
-      }
-    );
+    const xaiRes = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: "grok-3-mini",
+        messages,
+        max_tokens: 800,
+      }),
+    });
 
-    const data = await geminiRes.json();
+    const data = await xaiRes.json();
 
-    if (!geminiRes.ok) {
-      const isRateLimit = geminiRes.status === 429;
-      return res.status(geminiRes.status).json({
+    if (!xaiRes.ok) {
+      const isRateLimit = xaiRes.status === 429;
+      return res.status(xaiRes.status).json({
         error: isRateLimit
           ? "RATE_LIMIT: AI is temporarily busy. Please wait 30 seconds and try again."
-          : data.error?.message || "Gemini API error.",
+          : data.error?.message || "Grok API error.",
         isRateLimit,
       });
     }
 
-    const reply =
-      data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from AI.";
+    const reply = data.choices?.[0]?.message?.content || "No response from AI.";
     return res.status(200).json({ reply });
   } catch (err) {
     return res.status(500).json({ error: err.message });
