@@ -1,3 +1,4 @@
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -13,8 +14,9 @@ export default async function handler(req, res) {
 
     if (!message) return res.status(400).json({ error: "message is required." });
 
-    const key = process.env.XAI_API_KEY;
-    if (!key) return res.status(500).json({ error: "XAI_API_KEY not set." });
+    // Switched from XAI_API_KEY to GROQ_API_KEY
+    const key = process.env.GROQ_API_KEY;
+    if (!key) return res.status(500).json({ error: "GROQ_API_KEY not set." });
 
     // Build conversation history for multi-turn memory
     const messages = [
@@ -32,28 +34,28 @@ export default async function handler(req, res) {
       { role: "user", content: message },
     ];
 
-    const xaiRes = await fetch("https://api.x.ai/v1/chat/completions", {
+    // Groq uses an OpenAI-compatible endpoint, so only the URL and model name change
+    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: "grok-3-mini-beta",
+        model: "llama-3.3-70b-versatile", // Groq-hosted Llama 3.3 70B
         messages,
         max_tokens: 800,
       }),
     });
 
-    const data = await xaiRes.json();
+    const data = await groqRes.json();
 
-    if (!xaiRes.ok) {
-      const isRateLimit = xaiRes.status === 429;
-      // Return full error details so we can debug exactly what xAI is rejecting
-      return res.status(xaiRes.status).json({
+    if (!groqRes.ok) {
+      const isRateLimit = groqRes.status === 429;
+      return res.status(groqRes.status).json({
         error: isRateLimit
           ? "RATE_LIMIT: AI is temporarily busy. Please wait 30 seconds and try again."
-          : `xAI ${xaiRes.status}: ${data.error?.message || data.error?.code || JSON.stringify(data)}`,
+          : `Groq ${groqRes.status}: ${data.error?.message || data.error?.code || JSON.stringify(data)}`,
         isRateLimit,
       });
     }
