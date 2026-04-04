@@ -185,7 +185,7 @@ export default function App() {
     setChatHistory((prev) => [...prev, { role: "user", text: userMsg }]);
     setIsTyping(true);
     try {
-      const response = await fetch(API.grok, {
+      const response = await fetch(API.gemini, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userMsg }),
