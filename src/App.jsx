@@ -178,41 +178,21 @@ export default function App() {
     setSelectedGenres((prev) => prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]);
 
   const handleAiSearch = async (e) => {
-  e.preventDefault();
-  if (!aiInput.trim() || isTyping) return;
-  const userMsg = aiInput;
-  setAiInput("");
-  setChatHistory((prev) => [...prev, { role: "user", text: userMsg }]);
-  setIsTyping(true);
-  try {
-    const response = await fetch("/api/grok", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: userMsg }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Gemini error");
-    setChatHistory((prev) => [...prev, { role: "assistant", text: data.reply }]);
-  } catch (err) {
-    setChatHistory((prev) => [...prev, { role: "assistant", text: `Analysis offline: ${err.message}` }]);
-  } finally {
-    setIsTyping(false);
-  }
-};
+    e.preventDefault();
+    if (!aiInput.trim() || isTyping) return;
+    const userMsg = aiInput;
+    setAiInput("");
+    setChatHistory((prev) => [...prev, { role: "user", text: userMsg }]);
+    setIsTyping(true);
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
+      const response = await fetch("/api/grok", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: "You are a professional Anime Consultant. Keep responses brief and helpful. Use **double asterisks** for italic text and ****quadruple asterisks**** for bold text." }] },
-          contents: [{ parts: [{ text: userMsg }] }],
-          generationConfig: { maxOutputTokens: 1000 }
-        }),
+        body: JSON.stringify({ message: userMsg }),
       });
-      if (!response.ok) { const e = await response.json(); throw new Error(e.error?.message || "Gemini error"); }
       const data = await response.json();
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
-      setChatHistory((prev) => [...prev, { role: "assistant", text: reply }]);
+      if (!response.ok) throw new Error(data.error || "Gemini error");
+      setChatHistory((prev) => [...prev, { role: "assistant", text: data.reply }]);
     } catch (err) {
       setChatHistory((prev) => [...prev, { role: "assistant", text: `Analysis offline: ${err.message}` }]);
     } finally {
