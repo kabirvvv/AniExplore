@@ -39,7 +39,7 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: "grok-3-mini",
+        model: "grok-3-mini-beta",
         messages,
         max_tokens: 800,
       }),
@@ -49,10 +49,11 @@ export default async function handler(req, res) {
 
     if (!xaiRes.ok) {
       const isRateLimit = xaiRes.status === 429;
+      // Return full error details so we can debug exactly what xAI is rejecting
       return res.status(xaiRes.status).json({
         error: isRateLimit
           ? "RATE_LIMIT: AI is temporarily busy. Please wait 30 seconds and try again."
-          : data.error?.message || "Grok API error.",
+          : `xAI ${xaiRes.status}: ${data.error?.message || data.error?.code || JSON.stringify(data)}`,
         isRateLimit,
       });
     }
