@@ -178,12 +178,27 @@ export default function App() {
     setSelectedGenres((prev) => prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]);
 
   const handleAiSearch = async (e) => {
-    e.preventDefault();
-    if (!aiInput.trim() || isTyping) return;
-    const userMsg = aiInput;
-    setAiInput("");
-    setChatHistory((prev) => [...prev, { role: "user", text: userMsg }]);
-    setIsTyping(true);
+  e.preventDefault();
+  if (!aiInput.trim() || isTyping) return;
+  const userMsg = aiInput;
+  setAiInput("");
+  setChatHistory((prev) => [...prev, { role: "user", text: userMsg }]);
+  setIsTyping(true);
+  try {
+    const response = await fetch("/api/grok", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: userMsg }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Gemini error");
+    setChatHistory((prev) => [...prev, { role: "assistant", text: data.reply }]);
+  } catch (err) {
+    setChatHistory((prev) => [...prev, { role: "assistant", text: `Analysis offline: ${err.message}` }]);
+  } finally {
+    setIsTyping(false);
+  }
+};
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
         method: "POST",
