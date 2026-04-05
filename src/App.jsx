@@ -35,7 +35,10 @@ const AnimeCard = ({ anime, isPriority, onRead }) => {
   ), [anime]);
 
   return (
-    <div className={`group cursor-pointer transition-all duration-500 ${isPriority ? "ring-2 ring-indigo-500/50 rounded-2xl scale-[1.02]" : "hover:scale-[1.03]"}`}>
+    <div
+      onClick={() => onRead(anime)}
+      className={`group cursor-pointer transition-all duration-500 ${isPriority ? "ring-2 ring-indigo-500/50 rounded-2xl scale-[1.02]" : "hover:scale-[1.03]"}`}
+    >
       <div className="relative aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl bg-gray-900 border border-gray-800">
         {coverUrl && !imageError ? (
           <img src={coverUrl} alt={anime.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" loading="lazy" onError={() => setImageError(true)} />
@@ -56,20 +59,19 @@ const AnimeCard = ({ anime, isPriority, onRead }) => {
           <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
           <span className="text-[11px] font-bold text-white">{anime.score || "N/A"}</span>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 p-5 transform translate-y-1 group-hover:translate-y-0 transition-transform duration-300">
+        {/* Hover overlay with Read indicator */}
+        <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/20 transition-all duration-300 flex items-center justify-center">
+          <div className="opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center gap-2 px-4 py-2 bg-indigo-600/90 backdrop-blur-md rounded-2xl border border-indigo-400/30 shadow-xl">
+            <BookOpen className="w-4 h-4 text-white" />
+            <span className="text-xs font-black text-white uppercase tracking-widest">Read</span>
+          </div>
+        </div>
+        <div className="absolute bottom-0 left-0 right-0 p-5">
           <h3 className="font-bold text-white text-sm leading-tight mb-2 drop-shadow-2xl line-clamp-2 group-hover:text-indigo-300 transition-colors">{anime.title}</h3>
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-1.5">
-              {anime.genres?.slice(0, 2).map((g) => (
-                <span key={g.mal_id} className="text-[9px] font-bold bg-white/5 backdrop-blur-md text-gray-300 px-2 py-0.5 rounded border border-white/10 uppercase tracking-tighter">{g.name}</span>
-              ))}
-            </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); onRead(anime); }}
-              className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600/80 hover:bg-indigo-500 backdrop-blur-md text-white rounded-lg text-[9px] font-black uppercase tracking-tighter transition shrink-0 border border-indigo-400/30"
-            >
-              <BookOpen className="w-3 h-3" /> Read
-            </button>
+          <div className="flex flex-wrap gap-1.5">
+            {anime.genres?.slice(0, 2).map((g) => (
+              <span key={g.mal_id} className="text-[9px] font-bold bg-white/5 backdrop-blur-md text-gray-300 px-2 py-0.5 rounded border border-white/10 uppercase tracking-tighter">{g.name}</span>
+            ))}
           </div>
         </div>
       </div>
