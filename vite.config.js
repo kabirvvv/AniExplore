@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
    resolve: {
     extensions: ['.js', '.jsx', '.ts', '.tsx']
-  }
+  },
   server: {
     port: 5173,
     // Proxy /api calls to Vercel dev server locally
