@@ -2,9 +2,11 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Search, Play, Star, Info, Hash, Sparkles, Send, X,
   ChevronDown, ChevronUp, ImageOff, FilterX, Lightbulb,
-  Zap, Layers, RefreshCw, AlertTriangle, WifiOff, Clock,
+  Zap, Layers, RefreshCw, AlertTriangle, WifiOff, BookOpen,
 } from "lucide-react";
+import MangaReader from "./MangaReader";
 
+// Relative paths — works both locally (via Vite proxy) and on Vercel
 const API = {
   anime: "/api/anime",
   topAnime: "/api/top-anime",
@@ -24,8 +26,7 @@ const GENRE_MAP = {
 
 const ALL_GENRES = Object.keys(GENRE_MAP).sort();
 
-// ─── Anime Card ────────────────────────────────────────────────────────────────
-const AnimeCard = ({ anime, isPriority }) => {
+const AnimeCard = ({ anime, isPriority, onRead }) => {
   const [imageError, setImageError] = useState(false);
   const coverUrl = useMemo(() => (
     anime.images?.webp?.large_image_url ||
@@ -37,13 +38,7 @@ const AnimeCard = ({ anime, isPriority }) => {
     <div className={`group cursor-pointer transition-all duration-500 ${isPriority ? "ring-2 ring-indigo-500/50 rounded-2xl scale-[1.02]" : "hover:scale-[1.03]"}`}>
       <div className="relative aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl bg-gray-900 border border-gray-800">
         {coverUrl && !imageError ? (
-          <img
-            src={coverUrl}
-            alt={anime.title}
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-            loading="lazy"
-            onError={() => setImageError(true)}
-          />
+          <img src={coverUrl} alt={anime.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" loading="lazy" onError={() => setImageError(true)} />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 text-gray-700 p-6 text-center">
             <ImageOff className="w-12 h-12 mb-3 opacity-20" />
@@ -62,15 +57,19 @@ const AnimeCard = ({ anime, isPriority }) => {
           <span className="text-[11px] font-bold text-white">{anime.score || "N/A"}</span>
         </div>
         <div className="absolute bottom-0 left-0 right-0 p-5 transform translate-y-1 group-hover:translate-y-0 transition-transform duration-300">
-          <h3 className="font-bold text-white text-sm leading-tight mb-2 drop-shadow-2xl line-clamp-2 group-hover:text-indigo-300 transition-colors">
-            {anime.title}
-          </h3>
-          <div className="flex flex-wrap gap-1.5">
-            {anime.genres?.slice(0, 2).map((g) => (
-              <span key={g.mal_id} className="text-[9px] font-bold bg-white/5 backdrop-blur-md text-gray-300 px-2 py-0.5 rounded border border-white/10 uppercase tracking-tighter">
-                {g.name}
-              </span>
-            ))}
+          <h3 className="font-bold text-white text-sm leading-tight mb-2 drop-shadow-2xl line-clamp-2 group-hover:text-indigo-300 transition-colors">{anime.title}</h3>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              {anime.genres?.slice(0, 2).map((g) => (
+                <span key={g.mal_id} className="text-[9px] font-bold bg-white/5 backdrop-blur-md text-gray-300 px-2 py-0.5 rounded border border-white/10 uppercase tracking-tighter">{g.name}</span>
+              ))}
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onRead(anime); }}
+              className="flex items-center gap-1 px-2.5 py-1 bg-indigo-600/80 hover:bg-indigo-500 backdrop-blur-md text-white rounded-lg text-[9px] font-black uppercase tracking-tighter transition shrink-0 border border-indigo-400/30"
+            >
+              <BookOpen className="w-3 h-3" /> Read
+            </button>
           </div>
         </div>
       </div>
@@ -78,34 +77,20 @@ const AnimeCard = ({ anime, isPriority }) => {
   );
 };
 
-// ─── Formatted Text ────────────────────────────────────────────────────────────
 const FormattedText = ({ text }) => {
   if (!text) return null;
   const parts = text.split(/(\*{4}.*?\*{4}|\*{2}.*?\*{2})/g);
   return (
     <span>
       {parts.map((part, i) => {
-        if (part.startsWith("****") && part.endsWith("****"))
-          return <strong key={i} className="font-black text-white">{part.slice(4, -4)}</strong>;
-        if (part.startsWith("**") && part.endsWith("**"))
-          return <em key={i} className="italic text-indigo-300">{part.slice(2, -2)}</em>;
+        if (part.startsWith("****") && part.endsWith("****")) return <strong key={i} className="font-black text-white">{part.slice(4, -4)}</strong>;
+        if (part.startsWith("**") && part.endsWith("**")) return <em key={i} className="italic text-indigo-300">{part.slice(2, -2)}</em>;
         return part;
       })}
     </span>
   );
 };
 
-// ─── Cooldown Timer Display ────────────────────────────────────────────────────
-const CooldownBadge = ({ seconds }) => (
-  <div className="flex items-center gap-2 px-4 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl">
-    <Clock className="w-3.5 h-3.5 text-yellow-400 animate-pulse" />
-    <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">
-      AI Cooling Down — {seconds}s
-    </span>
-  </div>
-);
-
-// ─── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedGenres, setSelectedGenres] = useState([]);
@@ -119,40 +104,16 @@ export default function App() {
   const [showAllGenres, setShowAllGenres] = useState(false);
   const [fallbackMode, setFallbackMode] = useState(null);
   const [chatHistory, setChatHistory] = useState([
-    { role: "assistant", text: "System Online. AniExplore AI ready. Ask me for recommendations, comparisons, or anything anime!" },
+    { role: "assistant", text: "System Online. Grok intelligence ready. How can I assist your selection today?" },
   ]);
   const [isTyping, setIsTyping] = useState(false);
-
-  // ── Rate limit cooldown state ──
-  const [aiCooldown, setAiCooldown] = useState(0); // seconds remaining
-  const cooldownRef = useRef(null);
-
+  const [readingAnime, setReadingAnime] = useState(null);
   const chatEndRef = useRef(null);
 
-  // ── Start a 30s cooldown countdown ──
-  const startCooldown = (seconds = 30) => {
-    setAiCooldown(seconds);
-    if (cooldownRef.current) clearInterval(cooldownRef.current);
-    cooldownRef.current = setInterval(() => {
-      setAiCooldown((prev) => {
-        if (prev <= 1) {
-          clearInterval(cooldownRef.current);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  useEffect(() => () => clearInterval(cooldownRef.current), []);
-
-  // ── Fetch anime list ──
   const fetchAnime = async () => {
     setIsLoading(true);
     setFetchError(null);
-    // Use a local variable to track error type synchronously — fixes stale closure bug
-    let resolvedErrorType = null;
-
+    setErrorType(null);
     try {
       const params = new URLSearchParams();
       params.append("limit", "24");
@@ -182,13 +143,13 @@ export default function App() {
       try {
         response = await fetch(`${endpoint}?${params.toString()}`);
       } catch (networkErr) {
-        resolvedErrorType = "network";
+        setErrorType("network");
         throw new Error(`Cannot reach the API.\n${networkErr.message}`);
       }
 
       const json = await response.json();
       if (!response.ok) {
-        resolvedErrorType = response.status === 429 ? "ratelimit" : "http";
+        setErrorType(response.status === 429 ? "ratelimit" : "http");
         throw new Error(json.error || `HTTP ${response.status}`);
       }
 
@@ -196,12 +157,8 @@ export default function App() {
 
       if (selectedGenres.length > 1 && data.length > 0) {
         const targetIds = selectedGenres.map((g) => GENRE_MAP[g]);
-        const perfect = data.filter((a) =>
-          targetIds.every((id) => (a.genres?.map((g) => g.mal_id) || []).includes(id))
-        );
-        const rest = data.filter(
-          (a) => !targetIds.every((id) => (a.genres?.map((g) => g.mal_id) || []).includes(id))
-        );
+        const perfect = data.filter((a) => targetIds.every((id) => (a.genres?.map((g) => g.mal_id) || []).includes(id)));
+        const rest = data.filter((a) => !targetIds.every((id) => (a.genres?.map((g) => g.mal_id) || []).includes(id)));
         setPriorityIds(new Set(perfect.map((a) => a.mal_id)));
         if (perfect.length > 0) setFallbackMode("discovery");
         setAnimeList([...perfect, ...rest]);
@@ -211,7 +168,7 @@ export default function App() {
       }
     } catch (err) {
       setFetchError(err.message || "Unknown error.");
-      setErrorType(resolvedErrorType || "unknown");
+      if (!errorType) setErrorType("unknown");
       setAnimeList([]);
     } finally {
       setIsLoading(false);
@@ -228,78 +185,39 @@ export default function App() {
   }, [chatHistory]);
 
   const toggleGenre = (genre) =>
-    setSelectedGenres((prev) =>
-      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
-    );
+    setSelectedGenres((prev) => prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]);
 
-  // ── AI Chat Submit ──
   const handleAiSearch = async (e) => {
     e.preventDefault();
-    if (!aiInput.trim() || isTyping || aiCooldown > 0) return;
-
+    if (!aiInput.trim() || isTyping) return;
     const userMsg = aiInput;
     setAiInput("");
-
-    // Capture current history BEFORE state update for sending to API
-    const currentHistory = chatHistory;
     setChatHistory((prev) => [...prev, { role: "user", text: userMsg }]);
     setIsTyping(true);
-
     try {
       const response = await fetch("/api/grok", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Send full conversation history so Gemini has context
-        body: JSON.stringify({ message: userMsg, history: currentHistory }),
+        body: JSON.stringify({ message: userMsg }),
       });
-
       const data = await response.json();
-
-      if (!response.ok) {
-        if (data.isRateLimit || response.status === 429) {
-          startCooldown(30);
-          setChatHistory((prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              text: "⏳ AI is temporarily rate-limited. I'll be back online in 30 seconds — please wait before sending another message.",
-            },
-          ]);
-        } else {
-          throw new Error(data.error || "AI error");
-        }
-        return;
-      }
-
+      if (!response.ok) throw new Error(data.error || "Gemini error");
       setChatHistory((prev) => [...prev, { role: "assistant", text: data.reply }]);
     } catch (err) {
-      setChatHistory((prev) => [
-        ...prev,
-        { role: "assistant", text: `⚠️ Connection error: ${err.message}` },
-      ]);
+      setChatHistory((prev) => [...prev, { role: "assistant", text: `Analysis offline: ${err.message}` }]);
     } finally {
       setIsTyping(false);
     }
   };
 
   const displayedGenres = showAllGenres ? ALL_GENRES : ALL_GENRES.slice(0, 10);
-
-  const errorIcon =
-    errorType === "network"
-      ? <WifiOff className="w-10 h-10 text-red-500/60" />
-      : <AlertTriangle className="w-10 h-10 text-red-500/60" />;
-
-  const errorTitle =
-    errorType === "ratelimit"
-      ? "Rate Limited"
-      : errorType === "network"
-      ? "Network Unreachable"
-      : "Data Pipeline Error";
+  const errorIcon = errorType === "network"
+    ? <WifiOff className="w-10 h-10 text-red-500/60" />
+    : <AlertTriangle className="w-10 h-10 text-red-500/60" />;
+  const errorTitle = errorType === "ratelimit" ? "Rate Limited" : errorType === "network" ? "Network Unreachable" : "Data Pipeline Error";
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans selection:bg-indigo-500 selection:text-white">
-
-      {/* ── Header ── */}
       <header className="sticky top-0 z-30 bg-gray-950/80 backdrop-blur-2xl border-b border-white/5 shadow-2xl">
         <div className="max-w-[1600px] mx-auto px-6 py-5">
           <div className="flex items-center justify-between gap-8">
@@ -308,29 +226,16 @@ export default function App() {
                 <Play className="w-6 h-6 text-white fill-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-black tracking-tighter bg-gradient-to-br from-white to-gray-500 bg-clip-text text-transparent">
-                  ANIEXPLORE
-                </h1>
-                <p className="text-[10px] font-bold text-indigo-400 tracking-[0.2em] uppercase leading-none mt-1">
-                  High-Res Terminal
-                </p>
+                <h1 className="text-2xl font-black tracking-tighter bg-gradient-to-br from-white to-gray-500 bg-clip-text text-transparent">ANIEXPLORE</h1>
+                <p className="text-[10px] font-bold text-indigo-400 tracking-[0.2em] uppercase leading-none mt-1">High-Res Terminal</p>
               </div>
             </div>
             <div className="flex flex-1 max-w-2xl items-center gap-4">
               <div className="relative w-full group">
                 <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 group-focus-within:text-indigo-400 transition-colors" />
-                <input
-                  type="text"
-                  placeholder="Universal Search..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-14 pr-6 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all placeholder:text-gray-600 focus:bg-white/10"
-                />
+                <input type="text" placeholder="Universal Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-14 pr-6 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all placeholder:text-gray-600 focus:bg-white/10" />
               </div>
-              <button
-                onClick={() => setAiOpen(true)}
-                className="flex items-center gap-2.5 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-bold text-sm transition-all shadow-2xl shadow-indigo-600/20 active:scale-95 group whitespace-nowrap"
-              >
+              <button onClick={() => setAiOpen(true)} className="flex items-center gap-2.5 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-bold text-sm transition-all shadow-2xl shadow-indigo-600/20 active:scale-95 group whitespace-nowrap">
                 <Sparkles className="w-4 h-4 group-hover:animate-pulse" />
                 <span className="hidden md:inline">Ask AI</span>
               </button>
@@ -339,31 +244,20 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── Main ── */}
       <main className="max-w-[1600px] mx-auto px-6 py-10">
-
-        {/* Genre Section */}
         <section className="mb-14 bg-white/5 p-8 rounded-[2.5rem] border border-white/5 shadow-inner">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-indigo-500/10 rounded-xl">
-                <Hash className="w-5 h-5 text-indigo-400" />
-              </div>
+              <div className="p-2 bg-indigo-500/10 rounded-xl"><Hash className="w-5 h-5 text-indigo-400" /></div>
               <h2 className="font-black text-white tracking-widest uppercase text-xs">Thematic Matrices</h2>
             </div>
             <div className="flex gap-6">
               {selectedGenres.length > 0 && (
-                <button
-                  onClick={() => { setSelectedGenres([]); setFallbackMode(null); }}
-                  className="text-[10px] font-black text-red-400 hover:text-red-300 flex items-center gap-1.5 transition-colors uppercase tracking-widest"
-                >
+                <button onClick={() => { setSelectedGenres([]); setFallbackMode(null); }} className="text-[10px] font-black text-red-400 hover:text-red-300 flex items-center gap-1.5 transition-colors uppercase tracking-widest">
                   Clear All <FilterX className="w-3.5 h-3.5" />
                 </button>
               )}
-              <button
-                onClick={() => setShowAllGenres(!showAllGenres)}
-                className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors uppercase tracking-widest"
-              >
+              <button onClick={() => setShowAllGenres(!showAllGenres)} className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors uppercase tracking-widest">
                 {showAllGenres ? "Simplify View" : "Expand Catalog"}
                 {showAllGenres ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </button>
@@ -371,168 +265,107 @@ export default function App() {
           </div>
           <div className="flex flex-wrap gap-3">
             {displayedGenres.map((genre) => (
-              <button
-                key={genre}
-                onClick={() => toggleGenre(genre)}
-                className={`px-6 py-2.5 rounded-2xl text-[11px] font-bold uppercase tracking-wider transition-all duration-300 border ${
-                  selectedGenres.includes(genre)
-                    ? "bg-indigo-600 text-white shadow-xl shadow-indigo-600/40 border-indigo-500 scale-105"
-                    : "bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-200 border-white/5"
-                }`}
-              >
-                {genre}
-              </button>
+              <button key={genre} onClick={() => toggleGenre(genre)} className={`px-6 py-2.5 rounded-2xl text-[11px] font-bold uppercase tracking-wider transition-all duration-300 border ${selectedGenres.includes(genre) ? "bg-indigo-600 text-white shadow-xl shadow-indigo-600/40 border-indigo-500 scale-105" : "bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-200 border-white/5"}`}>{genre}</button>
             ))}
           </div>
         </section>
 
-        {/* Results Header */}
         <div className="flex items-end justify-between mb-10 px-4">
           <div className="space-y-2">
-            <div className="flex items-center gap-3 text-indigo-500 text-[10px] font-black uppercase tracking-[0.4em]">
-              <Layers className="w-4 h-4" />Real-Time Feed
-            </div>
+            <div className="flex items-center gap-3 text-indigo-500 text-[10px] font-black uppercase tracking-[0.4em]"><Layers className="w-4 h-4" />Real-Time Feed</div>
             <div className="flex items-center gap-4">
               <h2 className="text-4xl font-black text-white tracking-tighter">
                 {searchQuery ? `"${searchQuery}"` : selectedGenres.length > 0 ? "Curated Matrix" : "Top Tier Content"}
               </h2>
               {!isLoading && !fetchError && (
-                <span className="bg-white/5 border border-white/10 px-3 py-1 rounded-full text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                  {animeList.length} Units Found
-                </span>
+                <span className="bg-white/5 border border-white/10 px-3 py-1 rounded-full text-[10px] font-bold text-gray-400 uppercase tracking-widest">{animeList.length} Units Found</span>
               )}
             </div>
             {fallbackMode === "discovery" && (
               <div className="flex items-center gap-3 mt-4 py-2 px-5 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl w-fit">
                 <Lightbulb className="w-4 h-4 text-indigo-400" />
-                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
-                  Discovery Pipeline: Prioritizing Combo Matches
-                </span>
+                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">Discovery Pipeline: Prioritizing Combo Matches</span>
               </div>
             )}
           </div>
           {!isLoading && (
-            <button
-              onClick={fetchAnime}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-gray-400 hover:text-white transition-all uppercase tracking-widest"
-            >
+            <button onClick={fetchAnime} className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-gray-400 hover:text-white transition-all uppercase tracking-widest">
               <RefreshCw className="w-3.5 h-3.5" /> Refresh
             </button>
           )}
         </div>
 
-        {/* Loading skeletons */}
         {isLoading && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-8 animate-pulse">
-            {[...Array(12)].map((_, i) => (
-              <div key={i} className="aspect-[2/3] bg-white/5 rounded-[2rem] border border-white/5" />
-            ))}
+            {[...Array(12)].map((_, i) => <div key={i} className="aspect-[2/3] bg-white/5 rounded-[2rem] border border-white/5" />)}
           </div>
         )}
 
-        {/* Error state */}
         {!isLoading && fetchError && (
           <div className="text-center py-24 bg-red-950/10 rounded-[3rem] border border-dashed border-red-500/20 mx-4">
-            <div className="bg-gray-900 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-2xl">
-              {errorIcon}
-            </div>
+            <div className="bg-gray-900 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-2xl">{errorIcon}</div>
             <h3 className="text-2xl font-black text-red-400/80 mb-3 tracking-tighter">{errorTitle}</h3>
-            <pre className="text-xs text-gray-600 mb-8 font-mono max-w-md mx-auto whitespace-pre-wrap break-words px-6 text-left bg-black/20 py-4 rounded-2xl">
-              {fetchError}
-            </pre>
+            <pre className="text-xs text-gray-600 mb-8 font-mono max-w-md mx-auto whitespace-pre-wrap break-words px-6 text-left bg-black/20 py-4 rounded-2xl">{fetchError}</pre>
             <div className="flex gap-4 justify-center">
-              <button
-                onClick={fetchAnime}
-                className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition-all uppercase text-xs tracking-widest active:scale-95 flex items-center gap-2"
-              >
+              <button onClick={fetchAnime} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition-all uppercase text-xs tracking-widest active:scale-95 flex items-center gap-2">
                 <RefreshCw className="w-3.5 h-3.5" /> Retry
               </button>
-              <button
-                onClick={() => { setSearchQuery(""); setSelectedGenres([]); setFallbackMode(null); }}
-                className="px-8 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-2xl font-black transition-all uppercase text-xs tracking-widest"
-              >
+              <button onClick={() => { setSearchQuery(""); setSelectedGenres([]); setFallbackMode(null); }} className="px-8 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-2xl font-black transition-all uppercase text-xs tracking-widest">
                 Reset Filters
               </button>
             </div>
           </div>
         )}
 
-        {/* Anime Grid */}
         {!isLoading && !fetchError && animeList.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-8">
             {animeList.map((anime) => (
-              <AnimeCard key={anime.mal_id} anime={anime} isPriority={priorityIds.has(anime.mal_id)} />
+              <AnimeCard key={anime.mal_id} anime={anime} isPriority={priorityIds.has(anime.mal_id)} onRead={setReadingAnime} />
             ))}
           </div>
         )}
 
-        {/* Empty state */}
         {!isLoading && !fetchError && animeList.length === 0 && (
           <div className="text-center py-40 bg-white/5 rounded-[4rem] border border-dashed border-white/10 mx-4">
-            <div className="bg-gray-900 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8 shadow-2xl">
-              <Info className="w-10 h-10 text-gray-700" />
-            </div>
+            <div className="bg-gray-900 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8 shadow-2xl"><Info className="w-10 h-10 text-gray-700" /></div>
             <h3 className="text-3xl font-black text-gray-400 mb-3 tracking-tighter">No Results Found</h3>
-            <button
-              onClick={() => { setSearchQuery(""); setSelectedGenres([]); setFallbackMode(null); }}
-              className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition-all uppercase text-xs tracking-widest active:scale-95"
-            >
-              Reset Filters
-            </button>
+            <button onClick={() => { setSearchQuery(""); setSelectedGenres([]); setFallbackMode(null); }} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition-all uppercase text-xs tracking-widest active:scale-95">Reset Filters</button>
           </div>
         )}
       </main>
 
-      {/* ── AI Drawer ── */}
       {aiOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-md">
           <div className="w-full max-w-xl bg-gray-950 h-full flex flex-col shadow-2xl border-l border-white/5">
-
-            {/* AI Header */}
             <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/5 backdrop-blur-xl">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-600/20">
-                  <Sparkles className="w-6 h-6 text-white" />
-                </div>
+                <div className="p-3 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-600/20"><Sparkles className="w-6 h-6 text-white" /></div>
                 <div>
                   <h3 className="font-black text-xl text-white uppercase tracking-tighter leading-none">AI Consultant</h3>
-                  <p className="text-[10px] text-indigo-400 font-black uppercase tracking-[0.3em] mt-1">
-                    Powered by Google Gemini
-                  </p>
+                  <p className="text-[10px] text-indigo-400 font-black uppercase tracking-[0.3em] mt-1">Powered by Google Gemini</p>
                 </div>
               </div>
               <button onClick={() => setAiOpen(false)} className="p-3 hover:bg-white/10 rounded-2xl transition-colors group">
                 <X className="w-6 h-6 text-gray-500 group-hover:text-white transition-colors" />
               </button>
             </div>
-
-            {/* Chat Messages */}
             <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-gray-950/50">
               {chatHistory.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div
-                    className={`max-w-[85%] px-6 py-4 rounded-[2rem] text-sm leading-relaxed shadow-2xl ${
-                      msg.role === "user"
-                        ? "bg-indigo-600 text-white rounded-tr-none"
-                        : "bg-white/5 text-gray-300 rounded-tl-none border border-white/10"
-                    }`}
-                  >
+                  <div className={`max-w-[85%] px-6 py-4 rounded-[2rem] text-sm leading-relaxed shadow-2xl ${msg.role === "user" ? "bg-indigo-600 text-white rounded-tr-none" : "bg-white/5 text-gray-300 rounded-tl-none border border-white/10"}`}>
                     {msg.text.split("\n").map((line, idx) => (
-                      <p key={idx} className={idx > 0 ? "mt-3" : ""}>
-                        <FormattedText text={line} />
-                      </p>
+                      <p key={idx} className={idx > 0 ? "mt-3" : ""}><FormattedText text={line} /></p>
                     ))}
                   </div>
                 </div>
               ))}
-
               {isTyping && (
                 <div className="flex justify-start">
                   <div className="bg-white/5 px-8 py-4 rounded-[2rem] rounded-tl-none border border-white/10 flex items-center gap-4">
                     <div className="flex gap-1">
-                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: "-0.3s" }} />
-                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: "-0.15s" }} />
-                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" />
+                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: "-0.3s" }}></div>
+                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: "-0.15s" }}></div>
+                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce"></div>
                     </div>
                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Gemini Processing...</span>
                   </div>
@@ -540,32 +373,20 @@ export default function App() {
               )}
               <div ref={chatEndRef} />
             </div>
-
-            {/* Input Form */}
-            <div className="p-8 border-t border-white/5 bg-white/5 backdrop-blur-xl space-y-3">
-              {/* Cooldown badge — shows only when rate limited */}
-              {aiCooldown > 0 && <CooldownBadge seconds={aiCooldown} />}
-
+            <form onSubmit={handleAiSearch} className="p-8 border-t border-white/5 bg-white/5 backdrop-blur-xl">
               <div className="relative group">
-                <input
-                  type="text"
-                  placeholder={aiCooldown > 0 ? `Available in ${aiCooldown}s...` : "Ask AI about anime..."}
-                  value={aiInput}
-                  onChange={(e) => setAiInput(e.target.value)}
-                  disabled={aiCooldown > 0}
-                  className="w-full bg-white/5 border border-white/10 rounded-[1.5rem] py-5 pl-6 pr-16 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-sm font-medium placeholder:text-gray-700 group-focus-within:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                />
-                <button
-                  onClick={handleAiSearch}
-                  disabled={isTyping || aiCooldown > 0 || !aiInput.trim()}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-500 transition-all active:scale-90 shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {aiCooldown > 0 ? <Clock className="w-5 h-5" /> : <Send className="w-5 h-5" />}
+                <input type="text" placeholder="Ask AI about anime..." value={aiInput} onChange={(e) => setAiInput(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-[1.5rem] py-5 pl-6 pr-16 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-sm font-medium placeholder:text-gray-700 group-focus-within:bg-white/10" />
+                <button type="submit" disabled={isTyping} className="absolute right-3 top-1/2 -translate-y-1/2 p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-500 transition-all active:scale-90 shadow-xl disabled:opacity-50">
+                  <Send className="w-5 h-5" />
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
+      )}
+
+      {readingAnime && (
+        <MangaReader anime={readingAnime} onClose={() => setReadingAnime(null)} />
       )}
 
       <style>{`
