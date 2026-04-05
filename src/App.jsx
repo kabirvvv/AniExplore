@@ -4,7 +4,7 @@ import {
   ChevronDown, ChevronUp, ImageOff, FilterX, Lightbulb,
   Zap, Layers, RefreshCw, AlertTriangle, WifiOff, BookOpen,
 } from "lucide-react";
-import MangaReader from "./MangaReader";
+
 
 // Relative paths — works both locally (via Vite proxy) and on Vercel
 const API = {
@@ -387,9 +387,7 @@ export default function App() {
         </div>
       )}
 
-      {readingAnime && (
-        <MangaReader anime={readingAnime} onClose={() => setReadingAnime(null)} />
-      )}
+     
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
