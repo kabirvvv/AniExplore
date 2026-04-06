@@ -17,15 +17,34 @@ export default function MangaReader({ anime, onClose }) {
     searchManga();
   }, []);
 
+  // Build progressively simpler title variants to maximize MangaDex match rate
+  const buildTitleVariants = (anime) => {
+    const clean = (t) =>
+      t
+        ?.replace(/\s+(season|part|cour|s)\s*\d+/gi, "") // "Season 3 Part 2"
+        ?.replace(/\s+\d+(st|nd|rd|th)\s+season/gi, "") // "3rd Season"
+        ?.replace(/\s*[：:]\s*.+$/, "")                  // subtitle after colon
+        ?.replace(/\s*[-–]\s*.+$/, "")                   // subtitle after dash
+        ?.replace(/\s*!+$/, "")                          // trailing exclamation
+        ?.replace(/\s*\(.*?\)\s*/g, "")                  // anything in brackets
+        ?.trim();
+
+    return [
+      anime.title_english,
+      clean(anime.title_english),
+      anime.title,
+      clean(anime.title),
+      anime.title_japanese,
+    ]
+      .filter(Boolean)
+      .filter((v, i, arr) => arr.indexOf(v) === i); // deduplicate
+  };
+
   const searchManga = async () => {
     setLoading(true);
     setError(null);
     try {
-      const titles = [
-        anime.title_english,
-        anime.title,
-        anime.title_japanese,
-      ].filter(Boolean);
+      const titles = buildTitleVariants(anime);
 
       let found = null;
       for (const title of titles) {
