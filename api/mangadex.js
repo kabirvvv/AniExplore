@@ -8,8 +8,6 @@ export default async function handler(req, res) {
 
   try {
     // ── Image proxy ───────────────────────────────────────────────────────────
-    // MangaDex blocks direct browser requests due to hotlink protection.
-    // We fetch images server-side with the correct Referer and pipe them back.
     if (action === "image") {
       const imageUrl = params.url;
       if (!imageUrl) return res.status(400).json({ error: "url param required" });
@@ -27,18 +25,44 @@ export default async function handler(req, res) {
 
       const contentType = imageRes.headers.get("content-type") || "image/jpeg";
       res.setHeader("Content-Type", contentType);
-      res.setHeader("Cache-Control", "public, max-age=86400"); // cache images for 24h
+      res.setHeader("Cache-Control", "public, max-age=86400");
 
       const buffer = await imageRes.arrayBuffer();
       return res.status(200).send(Buffer.from(buffer));
     }
 
-    // ── Search ────────────────────────────────────────────────────────────────
+    // ── Lookup by MAL ID (primary — used when AniList provides idMal) ─────────
+    // MangaDex stores MAL IDs in manga links, so this is 100% accurate
+    if (action === "mal") {
+      const { malId } = params;
+      if (!malId) return res.status(400).json({ error: "malId param required" });
+
+      const url = [
+        `https://api.mangadex.org/manga`,
+        `?links[mal]=${malId}`,
+        `&includes[]=coverArt`,
+        `&contentRating[]=safe`,
+        `&contentRating[]=suggestive`,
+        `&hasAvailableChapters=true`,
+        `&availableTranslatedLanguage[]=en`,
+      ].join("");
+
+      const response = await fetch(url, {
+        headers: { "User-Agent": "AniExplore/1.0" },
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return res.status(response.status).json({ error: `MangaDex error: ${response.status} — ${errText}` });
+      }
+
+      const data = await response.json();
+      return res.status(200).json(data);
+    }
+
+    // ── Search by title (fallback — used when MAL ID lookup returns nothing) ──
     if (action === "search") {
       const title = params.title || "";
-      // includes coverArt so we get cover images back
-      // hasAvailableChapters=true filters out manga with no readable content
-      // availableTranslatedLanguage[]=en ensures English chapters exist
       const url = [
         `https://api.mangadex.org/manga`,
         `?title=${encodeURIComponent(title)}`,
@@ -54,10 +78,12 @@ export default async function handler(req, res) {
       const response = await fetch(url, {
         headers: { "User-Agent": "AniExplore/1.0" },
       });
+
       if (!response.ok) {
         const errText = await response.text();
         return res.status(response.status).json({ error: `MangaDex error: ${response.status} — ${errText}` });
       }
+
       const data = await response.json();
       return res.status(200).json(data);
     }
@@ -81,10 +107,12 @@ export default async function handler(req, res) {
       const response = await fetch(url, {
         headers: { "User-Agent": "AniExplore/1.0" },
       });
+
       if (!response.ok) {
         const errText = await response.text();
         return res.status(response.status).json({ error: `MangaDex error: ${response.status} — ${errText}` });
       }
+
       const data = await response.json();
       return res.status(200).json(data);
     }
@@ -98,15 +126,17 @@ export default async function handler(req, res) {
       const response = await fetch(url, {
         headers: { "User-Agent": "AniExplore/1.0" },
       });
+
       if (!response.ok) {
         const errText = await response.text();
         return res.status(response.status).json({ error: `MangaDex error: ${response.status} — ${errText}` });
       }
+
       const data = await response.json();
       return res.status(200).json(data);
     }
 
-    return res.status(400).json({ error: "Invalid action. Use: search, chapters, pages, image" });
+    return res.status(400).json({ error: "Invalid action. Use: mal, search, chapters, pages, image" });
 
   } catch (err) {
     return res.status(500).json({ error: err.message });
