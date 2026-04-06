@@ -7,43 +7,55 @@ export default async function handler(req, res) {
 
   const { q, genres, limit = 24 } = req.query;
 
-  // Build genre filter — AniList uses genre names directly
+  const GENRE_MAP = {
+    "1": "Action", "2": "Adventure", "4": "Comedy", "5": "Avant Garde",
+    "6": "Mythology", "7": "Mystery", "8": "Drama", "9": "Ecchi",
+    "10": "Fantasy", "13": "Historical", "14": "Horror", "17": "Martial Arts",
+    "18": "Mecha", "19": "Music", "20": "Parody", "21": "Samurai",
+    "22": "Romance", "23": "School", "24": "Sci-Fi", "25": "Shoujo",
+    "26": "Girls Love", "27": "Shounen", "28": "Boys Love", "29": "Space",
+    "30": "Sports", "31": "Super Power", "32": "Vampire", "35": "Harem",
+    "36": "Slice of Life", "37": "Supernatural", "38": "Military",
+    "39": "Police", "40": "Psychological", "41": "Suspense", "42": "Seinen",
+    "46": "Award Winning", "47": "Gourmet", "48": "Work Life",
+    "62": "Isekai", "63": "Iyashikei",
+  };
+
   const genreFilter = genres
-    ? genres.split(",").map((g) => {
-        const GENRE_MAP = {
-          "1": "Action", "2": "Adventure", "4": "Comedy", "5": "Avant Garde",
-          "6": "Mythology", "7": "Mystery", "8": "Drama", "9": "Ecchi",
-          "10": "Fantasy", "13": "Historical", "14": "Horror", "17": "Martial Arts",
-          "18": "Mecha", "19": "Music", "20": "Parody", "21": "Samurai",
-          "22": "Romance", "23": "School", "24": "Sci-Fi", "25": "Shoujo",
-          "26": "Girls Love", "27": "Shounen", "28": "Boys Love", "29": "Space",
-          "30": "Sports", "31": "Super Power", "32": "Vampire", "35": "Harem",
-          "36": "Slice of Life", "37": "Supernatural", "38": "Military",
-          "39": "Police", "40": "Psychological", "41": "Suspense", "42": "Seinen",
-          "46": "Award Winning", "47": "Gourmet", "48": "Work Life",
-          "62": "Isekai", "63": "Iyashikei",
-        };
-        return GENRE_MAP[g] || null;
-      }).filter(Boolean)
+    ? genres.split(",").map((g) => GENRE_MAP[g]).filter(Boolean)
     : [];
+
+  // Relations field pulls the source/adaptation manga and its MAL ID
+  // This means zero searching needed when opening MangaReader
+  const mediaFields = `
+    id
+    idMal
+    title { romaji english native }
+    coverImage { extraLarge large }
+    averageScore
+    genres
+    episodes
+    status
+    description(asHtml: false)
+    relations {
+      edges {
+        relationType
+        node {
+          id
+          idMal
+          type
+          format
+        }
+      }
+    }
+  `;
 
   const query = q
     ? `
       query ($search: String, $perPage: Int) {
         Page(perPage: $perPage) {
           media(search: $search, type: ANIME, format_in: [TV], sort: [SCORE_DESC]) {
-            id
-            idMal
-            title { romaji english native }
-            coverImage { extraLarge large }
-            bannerImage
-            averageScore
-            genres
-            episodes
-            status
-            description(asHtml: false)
-            season
-            seasonYear
+            ${mediaFields}
           }
         }
       }
@@ -52,19 +64,8 @@ export default async function handler(req, res) {
     ? `
       query ($genres: [String], $perPage: Int) {
         Page(perPage: $perPage) {
-          media(genre_in: $genres, type: ANIME, format_in: [TV], sort: [SCORE_DESC], minimumTagRank: 60) {
-            id
-            idMal
-            title { romaji english native }
-            coverImage { extraLarge large }
-            bannerImage
-            averageScore
-            genres
-            episodes
-            status
-            description(asHtml: false)
-            season
-            seasonYear
+          media(genre_in: $genres, type: ANIME, format_in: [TV], sort: [SCORE_DESC]) {
+            ${mediaFields}
           }
         }
       }
@@ -91,29 +92,38 @@ export default async function handler(req, res) {
     const json = await response.json();
     const media = json.data?.Page?.media || [];
 
-    // Map AniList shape → shape App.jsx already expects
-    const data = media.map((m) => ({
-      mal_id: m.idMal,
-      anilist_id: m.id,
-      title: m.title.english || m.title.romaji,
-      title_english: m.title.english,
-      title_japanese: m.title.native,
-      // images shape matches what AnimeCard reads
-      images: {
-        webp: {
-          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-          image_url: m.coverImage.large,
+    const data = media.map((m) => {
+      // Find the source manga relation and grab its MAL ID directly
+      const mangaEdge = m.relations?.edges?.find(
+        (e) =>
+          e.node.type === "MANGA" &&
+          (e.relationType === "SOURCE" || e.relationType === "ADAPTATION")
+      );
+      const manga_mal_id = mangaEdge?.node?.idMal || null;
+
+      return {
+        mal_id: m.idMal,
+        anilist_id: m.id,
+        manga_mal_id,                          // ← direct manga MAL ID, no searching needed
+        title: m.title.english || m.title.romaji,
+        title_english: m.title.english,
+        title_japanese: m.title.native,
+        images: {
+          webp: {
+            large_image_url: m.coverImage.extraLarge || m.coverImage.large,
+            image_url: m.coverImage.large,
+          },
+          jpg: {
+            large_image_url: m.coverImage.extraLarge || m.coverImage.large,
+          },
         },
-        jpg: {
-          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-        },
-      },
-      score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
-      genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
-      episodes: m.episodes,
-      status: m.status,
-      synopsis: m.description,
-    }));
+        score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
+        genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
+        episodes: m.episodes,
+        status: m.status,
+        synopsis: m.description,
+      };
+    });
 
     return res.status(200).json({ data });
   } catch (err) {
