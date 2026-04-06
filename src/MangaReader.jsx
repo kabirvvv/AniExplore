@@ -14,50 +14,44 @@ export default function MangaReader({ anime, onClose }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    searchManga();
+    findManga();
   }, []);
 
-  // Build progressively simpler title variants to maximize MangaDex match rate
-  const buildTitleVariants = (anime) => {
-    const clean = (t) =>
-      t
-        ?.replace(/\s+(season|part|cour|s)\s*\d+/gi, "") // "Season 3 Part 2"
-        ?.replace(/\s+\d+(st|nd|rd|th)\s+season/gi, "") // "3rd Season"
-        ?.replace(/\s*[：:]\s*.+$/, "")                  // subtitle after colon
-        ?.replace(/\s*[-–]\s*.+$/, "")                   // subtitle after dash
-        ?.replace(/\s*!+$/, "")                          // trailing exclamation
-        ?.replace(/\s*\(.*?\)\s*/g, "")                  // anything in brackets
-        ?.trim();
-
-    return [
-      anime.title_english,
-      clean(anime.title_english),
-      anime.title,
-      clean(anime.title),
-      anime.title_japanese,
-    ]
-      .filter(Boolean)
-      .filter((v, i, arr) => arr.indexOf(v) === i); // deduplicate
-  };
-
-  const searchManga = async () => {
+  // ── Step 1: Find manga using MAL ID first, title search as fallback ────────
+  const findManga = async () => {
     setLoading(true);
     setError(null);
     try {
-      const titles = buildTitleVariants(anime);
-
       let found = null;
-      for (const title of titles) {
-        const res = await fetch(`/api/mangadex?action=search&title=${encodeURIComponent(title)}`);
+
+      // Primary: MAL ID lookup — 100% accurate, no title guessing
+      if (anime.mal_id) {
+        const res = await fetch(`/api/mangadex?action=mal&malId=${anime.mal_id}`);
         const data = await res.json();
         if (data.data && data.data.length > 0) {
           found = data.data[0];
-          break;
+        }
+      }
+
+      // Fallback: title search with cleaned variants
+      if (!found) {
+        const variants = buildTitleVariants(anime);
+        for (const title of variants) {
+          const res = await fetch(
+            `/api/mangadex?action=search&title=${encodeURIComponent(title)}`
+          );
+          const data = await res.json();
+          if (data.data && data.data.length > 0) {
+            found = data.data[0];
+            break;
+          }
         }
       }
 
       if (!found) {
-        throw new Error(`Could not find "${anime.title}" on MangaDex. It may not have an English translation available.`);
+        throw new Error(
+          `Could not find "${anime.title}" on MangaDex. A manga adaptation may not exist or may not have English chapters.`
+        );
       }
 
       const title =
@@ -76,10 +70,36 @@ export default function MangaReader({ anime, onClose }) {
     }
   };
 
+  // Title cleaning for fallback search
+  const buildTitleVariants = (anime) => {
+    const clean = (t) =>
+      t
+        ?.replace(/\s+(season|part|cour|s)\s*\d+/gi, "")
+        ?.replace(/\s+\d+(st|nd|rd|th)\s+season/gi, "")
+        ?.replace(/\s*[：:]\s*.+$/, "")
+        ?.replace(/\s*[-–]\s*.+$/, "")
+        ?.replace(/\s*!+$/, "")
+        ?.replace(/\s*\(.*?\)\s*/g, "")
+        ?.trim();
+
+    return [
+      anime.title_english,
+      clean(anime.title_english),
+      anime.title,
+      clean(anime.title),
+      anime.title_japanese,
+    ]
+      .filter(Boolean)
+      .filter((v, i, arr) => arr.indexOf(v) === i);
+  };
+
+  // ── Step 2: Fetch chapter list ─────────────────────────────────────────────
   const fetchChapters = async (id, offset) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/mangadex?action=chapters&id=${id}&offset=${offset}`);
+      const res = await fetch(
+        `/api/mangadex?action=chapters&id=${id}&offset=${offset}`
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load chapters");
 
@@ -101,17 +121,20 @@ export default function MangaReader({ anime, onClose }) {
     }
   };
 
+  // ── Step 3: Load pages ─────────────────────────────────────────────────────
   const readChapter = async (chapter) => {
     setLoading(true);
     setError(null);
     setPages([]);
     try {
-      const res = await fetch(`/api/mangadex?action=pages&chapterId=${chapter.id}`);
+      const res = await fetch(
+        `/api/mangadex?action=pages&chapterId=${chapter.id}`
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load pages");
 
       const { baseUrl, chapter: chData } = data;
-      // Route through our server-side proxy to bypass MangaDex hotlink protection
+      // Proxy images through our server to bypass MangaDex hotlink protection
       const imageUrls = chData.data.map(
         (file) =>
           `/api/mangadex?action=image&url=${encodeURIComponent(
@@ -134,12 +157,13 @@ export default function MangaReader({ anime, onClose }) {
     if (mangaId) fetchChapters(mangaId, chapOffset + 96);
   };
 
+  // ── Loading screen ─────────────────────────────────────────────────────────
   if (loading && view === "search") {
     return (
       <div className="fixed inset-0 z-50 bg-gray-950 flex flex-col items-center justify-center gap-4">
         <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
         <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">
-          Searching MangaDex...
+          Finding manga...
         </p>
         <button
           onClick={onClose}
@@ -151,6 +175,7 @@ export default function MangaReader({ anime, onClose }) {
     );
   }
 
+  // ── Error screen ───────────────────────────────────────────────────────────
   if (error && view === "search") {
     return (
       <div className="fixed inset-0 z-50 bg-gray-950 flex flex-col items-center justify-center gap-4 p-8 text-center">
@@ -167,6 +192,7 @@ export default function MangaReader({ anime, onClose }) {
     );
   }
 
+  // ── Reading mode ───────────────────────────────────────────────────────────
   if (view === "reading") {
     const currentIndex = chapters.findIndex((ch) => ch.id === currentChapter?.id);
     const prevChapter = currentIndex > 0 ? chapters[currentIndex - 1] : null;
@@ -231,6 +257,7 @@ export default function MangaReader({ anime, onClose }) {
     );
   }
 
+  // ── Chapter list ───────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
       <div className="sticky top-0 z-50 bg-gray-950/95 backdrop-blur-xl border-b border-white/5 px-6 py-4 flex items-center justify-between">
