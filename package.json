@@ -2,7 +2,7 @@
   "name": "aniexplore",
   "version": "1.0.0",
   "description": "Anime discovery app powered by atsumoe/mangapill API and groq ai",
-  "cheerio": "^1.0.0",
+ 
   "type": "module",
   "scripts": {
     "dev": "vite",
