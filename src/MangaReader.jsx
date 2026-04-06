@@ -17,15 +17,23 @@ export default function MangaReader({ anime, onClose }) {
     findManga();
   }, []);
 
-  // ── Step 1: Find manga using MAL ID first, title search as fallback ────────
   const findManga = async () => {
     setLoading(true);
     setError(null);
     try {
       let found = null;
 
-      // Primary: MAL ID lookup — 100% accurate, no title guessing
-      if (anime.mal_id) {
+      // Primary: use manga_mal_id from AniList relations — direct ID match, no searching
+      if (anime.manga_mal_id) {
+        const res = await fetch(`/api/mangadex?action=mal&malId=${anime.manga_mal_id}`);
+        const data = await res.json();
+        if (data.data && data.data.length > 0) {
+          found = data.data[0];
+        }
+      }
+
+      // Secondary: try anime's own MAL ID against MangaDex
+      if (!found && anime.mal_id) {
         const res = await fetch(`/api/mangadex?action=mal&malId=${anime.mal_id}`);
         const data = await res.json();
         if (data.data && data.data.length > 0) {
@@ -33,13 +41,11 @@ export default function MangaReader({ anime, onClose }) {
         }
       }
 
-      // Fallback: title search with cleaned variants
+      // Last resort: plain title search, no cleaning
       if (!found) {
-        const variants = buildTitleVariants(anime);
-        for (const title of variants) {
-          const res = await fetch(
-            `/api/mangadex?action=search&title=${encodeURIComponent(title)}`
-          );
+        const titles = [anime.title_english, anime.title, anime.title_japanese].filter(Boolean);
+        for (const title of titles) {
+          const res = await fetch(`/api/mangadex?action=search&title=${encodeURIComponent(title)}`);
           const data = await res.json();
           if (data.data && data.data.length > 0) {
             found = data.data[0];
@@ -50,7 +56,7 @@ export default function MangaReader({ anime, onClose }) {
 
       if (!found) {
         throw new Error(
-          `Could not find "${anime.title}" on MangaDex. A manga adaptation may not exist or may not have English chapters.`
+          `No manga found for "${anime.title}". A manga adaptation may not exist or may not have English chapters available.`
         );
       }
 
@@ -70,36 +76,10 @@ export default function MangaReader({ anime, onClose }) {
     }
   };
 
-  // Title cleaning for fallback search
-  const buildTitleVariants = (anime) => {
-    const clean = (t) =>
-      t
-        ?.replace(/\s+(season|part|cour|s)\s*\d+/gi, "")
-        ?.replace(/\s+\d+(st|nd|rd|th)\s+season/gi, "")
-        ?.replace(/\s*[：:]\s*.+$/, "")
-        ?.replace(/\s*[-–]\s*.+$/, "")
-        ?.replace(/\s*!+$/, "")
-        ?.replace(/\s*\(.*?\)\s*/g, "")
-        ?.trim();
-
-    return [
-      anime.title_english,
-      clean(anime.title_english),
-      anime.title,
-      clean(anime.title),
-      anime.title_japanese,
-    ]
-      .filter(Boolean)
-      .filter((v, i, arr) => arr.indexOf(v) === i);
-  };
-
-  // ── Step 2: Fetch chapter list ─────────────────────────────────────────────
   const fetchChapters = async (id, offset) => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/mangadex?action=chapters&id=${id}&offset=${offset}`
-      );
+      const res = await fetch(`/api/mangadex?action=chapters&id=${id}&offset=${offset}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load chapters");
 
@@ -121,20 +101,16 @@ export default function MangaReader({ anime, onClose }) {
     }
   };
 
-  // ── Step 3: Load pages ─────────────────────────────────────────────────────
   const readChapter = async (chapter) => {
     setLoading(true);
     setError(null);
     setPages([]);
     try {
-      const res = await fetch(
-        `/api/mangadex?action=pages&chapterId=${chapter.id}`
-      );
+      const res = await fetch(`/api/mangadex?action=pages&chapterId=${chapter.id}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load pages");
 
       const { baseUrl, chapter: chData } = data;
-      // Proxy images through our server to bypass MangaDex hotlink protection
       const imageUrls = chData.data.map(
         (file) =>
           `/api/mangadex?action=image&url=${encodeURIComponent(
@@ -157,7 +133,6 @@ export default function MangaReader({ anime, onClose }) {
     if (mangaId) fetchChapters(mangaId, chapOffset + 96);
   };
 
-  // ── Loading screen ─────────────────────────────────────────────────────────
   if (loading && view === "search") {
     return (
       <div className="fixed inset-0 z-50 bg-gray-950 flex flex-col items-center justify-center gap-4">
@@ -165,17 +140,13 @@ export default function MangaReader({ anime, onClose }) {
         <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">
           Finding manga...
         </p>
-        <button
-          onClick={onClose}
-          className="mt-8 text-gray-600 hover:text-white text-xs uppercase tracking-widest"
-        >
+        <button onClick={onClose} className="mt-8 text-gray-600 hover:text-white text-xs uppercase tracking-widest">
           Cancel
         </button>
       </div>
     );
   }
 
-  // ── Error screen ───────────────────────────────────────────────────────────
   if (error && view === "search") {
     return (
       <div className="fixed inset-0 z-50 bg-gray-950 flex flex-col items-center justify-center gap-4 p-8 text-center">
@@ -192,12 +163,10 @@ export default function MangaReader({ anime, onClose }) {
     );
   }
 
-  // ── Reading mode ───────────────────────────────────────────────────────────
   if (view === "reading") {
     const currentIndex = chapters.findIndex((ch) => ch.id === currentChapter?.id);
     const prevChapter = currentIndex > 0 ? chapters[currentIndex - 1] : null;
-    const nextChapter =
-      currentIndex < chapters.length - 1 ? chapters[currentIndex + 1] : null;
+    const nextChapter = currentIndex < chapters.length - 1 ? chapters[currentIndex + 1] : null;
 
     return (
       <div className="fixed inset-0 z-50 bg-[#0a0a0a] overflow-y-auto">
@@ -211,10 +180,7 @@ export default function MangaReader({ anime, onClose }) {
           <span className="text-white font-black text-sm truncate max-w-[200px]">
             Ch. {currentChapter?.attributes.chapter || "Oneshot"} — {mangaTitle}
           </span>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-xl transition"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition">
             <X className="w-5 h-5 text-gray-400 hover:text-white" />
           </button>
         </div>
@@ -257,25 +223,19 @@ export default function MangaReader({ anime, onClose }) {
     );
   }
 
-  // ── Chapter list ───────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 overflow-y-auto">
       <div className="sticky top-0 z-50 bg-gray-950/95 backdrop-blur-xl border-b border-white/5 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <BookOpen className="w-5 h-5 text-indigo-400" />
           <div>
-            <h2 className="font-black text-white tracking-tighter leading-none">
-              {mangaTitle}
-            </h2>
+            <h2 className="font-black text-white tracking-tighter leading-none">{mangaTitle}</h2>
             <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest mt-0.5">
               {totalChapters} chapters on MangaDex
             </p>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="p-2 hover:bg-white/10 rounded-xl transition"
-        >
+        <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition">
           <X className="w-5 h-5 text-gray-400 hover:text-white" />
         </button>
       </div>
@@ -288,9 +248,7 @@ export default function MangaReader({ anime, onClose }) {
 
       <div className="max-w-4xl mx-auto px-6 py-8">
         {chapters.length === 0 && !loading ? (
-          <div className="text-center py-20 text-gray-500">
-            No English chapters found.
-          </div>
+          <div className="text-center py-20 text-gray-500">No English chapters found.</div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {chapters.map((ch) => (
@@ -303,9 +261,7 @@ export default function MangaReader({ anime, onClose }) {
                   Ch. {ch.attributes.chapter || "Oneshot"}
                 </span>
                 {ch.attributes.title && (
-                  <span className="text-[10px] text-gray-500 truncate">
-                    {ch.attributes.title}
-                  </span>
+                  <span className="text-[10px] text-gray-500 truncate">{ch.attributes.title}</span>
                 )}
               </button>
             ))}
