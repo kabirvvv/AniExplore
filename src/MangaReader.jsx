@@ -92,8 +92,12 @@ export default function MangaReader({ anime, onClose }) {
       if (!res.ok) throw new Error(data.error || "Failed to load pages");
 
       const { baseUrl, chapter: chData } = data;
+      // Route through our server-side proxy to bypass MangaDex hotlink protection
       const imageUrls = chData.data.map(
-        (file) => `${baseUrl}/data/${chData.hash}/${file}`
+        (file) =>
+          `/api/mangadex?action=image&url=${encodeURIComponent(
+            `${baseUrl}/data/${chData.hash}/${file}`
+          )}`
       );
 
       setPages(imageUrls);
