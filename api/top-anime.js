@@ -15,14 +15,22 @@ export default async function handler(req, res) {
           idMal
           title { romaji english native }
           coverImage { extraLarge large }
-          bannerImage
           averageScore
           genres
           episodes
           status
           description(asHtml: false)
-          season
-          seasonYear
+          relations {
+            edges {
+              relationType
+              node {
+                id
+                idMal
+                type
+                format
+              }
+            }
+          }
         }
       }
     }
@@ -42,27 +50,37 @@ export default async function handler(req, res) {
     const json = await response.json();
     const media = json.data?.Page?.media || [];
 
-    const data = media.map((m) => ({
-      mal_id: m.idMal,
-      anilist_id: m.id,
-      title: m.title.english || m.title.romaji,
-      title_english: m.title.english,
-      title_japanese: m.title.native,
-      images: {
-        webp: {
-          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-          image_url: m.coverImage.large,
+    const data = media.map((m) => {
+      const mangaEdge = m.relations?.edges?.find(
+        (e) =>
+          e.node.type === "MANGA" &&
+          (e.relationType === "SOURCE" || e.relationType === "ADAPTATION")
+      );
+      const manga_mal_id = mangaEdge?.node?.idMal || null;
+
+      return {
+        mal_id: m.idMal,
+        anilist_id: m.id,
+        manga_mal_id,
+        title: m.title.english || m.title.romaji,
+        title_english: m.title.english,
+        title_japanese: m.title.native,
+        images: {
+          webp: {
+            large_image_url: m.coverImage.extraLarge || m.coverImage.large,
+            image_url: m.coverImage.large,
+          },
+          jpg: {
+            large_image_url: m.coverImage.extraLarge || m.coverImage.large,
+          },
         },
-        jpg: {
-          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-        },
-      },
-      score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
-      genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
-      episodes: m.episodes,
-      status: m.status,
-      synopsis: m.description,
-    }));
+        score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
+        genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
+        episodes: m.episodes,
+        status: m.status,
+        synopsis: m.description,
+      };
+    });
 
     return res.status(200).json({ data });
   } catch (err) {
