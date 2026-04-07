@@ -10,27 +10,22 @@ export default async function handler(req, res) {
   const query = `
     query ($perPage: Int) {
       Page(perPage: $perPage) {
-        media(type: ANIME, format_in: [TV], sort: [SCORE_DESC], status_not: NOT_YET_RELEASED) {
+        media(
+          type: MANGA,
+          sort: [SCORE_DESC],
+          status_not: NOT_YET_RELEASED,
+          format_in: [MANGA, ONE_SHOT]
+        ) {
           id
           idMal
           title { romaji english native }
           coverImage { extraLarge large }
           averageScore
           genres
-          episodes
+          chapters
           status
+          format
           description(asHtml: false)
-          relations {
-            edges {
-              relationType
-              node {
-                id
-                idMal
-                type
-                format
-              }
-            }
-          }
         }
       }
     }
@@ -39,7 +34,7 @@ export default async function handler(req, res) {
   try {
     const response = await fetch("https://graphql.anilist.co", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ query, variables: { perPage: parseInt(limit) } }),
     });
 
@@ -50,37 +45,29 @@ export default async function handler(req, res) {
     const json = await response.json();
     const media = json.data?.Page?.media || [];
 
-    const data = media.map((m) => {
-      const mangaEdge = m.relations?.edges?.find(
-        (e) =>
-          e.node.type === "MANGA" &&
-          (e.relationType === "SOURCE" || e.relationType === "ADAPTATION")
-      );
-      const manga_mal_id = mangaEdge?.node?.idMal || null;
-
-      return {
-        mal_id: m.idMal,
-        anilist_id: m.id,
-        manga_mal_id,
-        title: m.title.english || m.title.romaji,
-        title_english: m.title.english,
-        title_japanese: m.title.native,
-        images: {
-          webp: {
-            large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-            image_url: m.coverImage.large,
-          },
-          jpg: {
-            large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-          },
+    const data = media.map((m) => ({
+      mal_id: m.idMal,
+      anilist_id: m.id,
+      title: m.title.english || m.title.romaji,
+      title_english: m.title.english,
+      title_romaji: m.title.romaji,
+      title_japanese: m.title.native,
+      images: {
+        webp: {
+          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
+          image_url: m.coverImage.large,
         },
-        score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
-        genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
-        episodes: m.episodes,
-        status: m.status,
-        synopsis: m.description,
-      };
-    });
+        jpg: {
+          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
+        },
+      },
+      score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
+      genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
+      chapters: m.chapters,
+      status: m.status,
+      format: m.format,
+      synopsis: m.description,
+    }));
 
     return res.status(200).json({ data });
   } catch (err) {
