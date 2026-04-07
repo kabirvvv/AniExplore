@@ -9,7 +9,7 @@
  *   GET ?action=image&url=...                  → proxy a page image (fixes CORS / hotlink)
  */
 
-import * as cheerio from "cheerio";
+import { load } from "cheerio";
 
 // ─── CORS / CACHE HEADERS ────────────────────────────────────────────────────
 
@@ -41,17 +41,17 @@ async function fetchHTML(url, referer) {
 const PILL = "https://mangapill.com";
 
 async function pillSearch(title) {
-  const html = await fetchHTML(`${PILL}/search?q=${encodeURIComponent(title)}&type=&status=`);
-  const $ = cheerio.load(html);
+  const html = await fetchHTML(
+    `${PILL}/search?q=${encodeURIComponent(title)}&type=&status=`
+  );
+  const $ = load(html);
   const results = [];
 
-  // Each result card is an <a> linking to /manga/{id}/{slug}
   $("a[href^='/manga/']").each((_, el) => {
     const href = $(el).attr("href");
-    const parts = href.split("/").filter(Boolean); // ["manga","123","slug"]
+    const parts = href.split("/").filter(Boolean);
     if (parts.length < 3) return;
     const [, id, slug] = parts;
-    // Grab title from the first visible text child div
     const titleText =
       $(el).find("div").first().text().trim() ||
       $(el).attr("title") ||
@@ -66,11 +66,11 @@ async function pillSearch(title) {
 
 async function pillChapters(mangaPath) {
   const html = await fetchHTML(`${PILL}${mangaPath}`, PILL);
-  const $ = cheerio.load(html);
+  const $ = load(html);
   const chapters = [];
 
   $("a[href^='/chapters/']").each((_, el) => {
-    const href = $(el).attr("href"); // /chapters/10001001/0001
+    const href = $(el).attr("href");
     const label = $(el).text().trim();
     const idMatch = href.match(/\/chapters\/(\d+)/);
     if (!idMatch) return;
@@ -89,7 +89,7 @@ async function pillChapters(mangaPath) {
 
 async function pillPages(chapterPath) {
   const html = await fetchHTML(`${PILL}${chapterPath}`, PILL);
-  const $ = cheerio.load(html);
+  const $ = load(html);
   const pages = [];
 
   $("img[data-src], img[src]").each((_, el) => {
@@ -108,12 +108,11 @@ const ATSU = "https://atsu.moe";
 
 async function atsuSearch(title) {
   const html = await fetchHTML(`${ATSU}/?s=${encodeURIComponent(title)}`);
-  const $ = cheerio.load(html);
+  const $ = load(html);
   const results = [];
 
   $("a[href*='/manga/']").each((_, el) => {
     const href = $(el).attr("href") || "";
-    // Match /manga/s1/slug  (AtsuMoe uses a server prefix like s1)
     const slugMatch = href.match(/\/manga\/[^/]+\/([^/?#]+)/);
     if (!slugMatch) return;
     const slug = slugMatch[1];
@@ -129,18 +128,17 @@ async function atsuSearch(title) {
 
 async function atsuChapters(mangaPath) {
   const html = await fetchHTML(`${ATSU}${mangaPath}`, ATSU);
-  const $ = cheerio.load(html);
+  const $ = load(html);
   const chapters = [];
 
   $("a[href*='/manga/']").each((_, el) => {
     const href = $(el).attr("href") || "";
-    // Chapter links are deeper: /manga/s1/slug/chapter-X
     if (!href.match(/\/manga\/[^/]+\/[^/]+\/[^/]+/)) return;
     const label = $(el).text().trim();
     const numMatch = label.match(/(\d+(?:\.\d+)?)/);
     const path = href.startsWith("http") ? new URL(href).pathname : href;
     chapters.push({
-      id: path,           // use path as ID since there's no numeric ID
+      id: path,
       number: numMatch ? numMatch[1] : label,
       title: label,
       path,
@@ -152,9 +150,11 @@ async function atsuChapters(mangaPath) {
 }
 
 async function atsuPages(chapterPath) {
-  const url = chapterPath.startsWith("http") ? chapterPath : `${ATSU}${chapterPath}`;
+  const url = chapterPath.startsWith("http")
+    ? chapterPath
+    : `${ATSU}${chapterPath}`;
   const html = await fetchHTML(url, ATSU);
-  const $ = cheerio.load(html);
+  const $ = load(html);
   const pages = [];
 
   $("img[src], img[data-src]").each((_, el) => {
@@ -167,10 +167,9 @@ async function atsuPages(chapterPath) {
   return pages;
 }
 
-// ─── UNIFIED SEARCH (tries all title variants, falls back to AtsuMoe) ────────
+// ─── UNIFIED SEARCH ───────────────────────────────────────────────────────────
 
 async function searchWithFallback(titles) {
-  // Try MangaPill with each title variant
   for (const title of titles) {
     if (!title) continue;
     try {
@@ -181,7 +180,6 @@ async function searchWithFallback(titles) {
     }
   }
 
-  // Fall back to AtsuMoe
   for (const title of titles) {
     if (!title) continue;
     try {
@@ -221,7 +219,7 @@ async function proxyImage(res, imageUrl, source) {
   res.status(200).send(Buffer.from(buffer));
 }
 
-// ─── HANDLER ─────────────────────────────────────────────────────────────────
+// ─── MAIN HANDLER ────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
@@ -229,9 +227,10 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const { action, title, title_english, title_japanese, path, source, url } = req.query;
+  const { action, title, title_english, title_japanese, path, source, url } =
+    req.query;
 
-  // ── IMAGE PROXY ──────────────────────────────────────────────────────────
+  // ── IMAGE PROXY ────────────────────────────────────────────────────────────
   if (action === "image") {
     if (!url) return res.status(400).json({ error: "url param required" });
     try {
@@ -243,24 +242,17 @@ export default async function handler(req, res) {
 
   setHeaders(res, action === "search" ? 300 : 120);
 
-  // ── SEARCH ───────────────────────────────────────────────────────────────
+  // ── SEARCH ─────────────────────────────────────────────────────────────────
   if (action === "search") {
     if (!title) return res.status(400).json({ error: "title param required" });
 
-    // Build title variants from what AniList provides
-    const variants = [
-      title_english,
-      title,                        // romaji / fallback
-      title_japanese,
-    ].filter(Boolean);
+    const variants = [title_english, title, title_japanese].filter(Boolean);
 
     try {
       const { source: foundSource, results } = await searchWithFallback(variants);
       if (!results.length) {
         return res.status(404).json({ error: `No manga found for "${title}"` });
       }
-      // Return the best match (first result) plus the source so the client
-      // can pass it back for chapter / page requests.
       return res.status(200).json({
         source: foundSource,
         match: results[0],
@@ -271,7 +263,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── CHAPTERS ─────────────────────────────────────────────────────────────
+  // ── CHAPTERS ───────────────────────────────────────────────────────────────
   if (action === "chapters") {
     if (!path) return res.status(400).json({ error: "path param required" });
 
@@ -293,7 +285,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── PAGES ────────────────────────────────────────────────────────────────
+  // ── PAGES ──────────────────────────────────────────────────────────────────
   if (action === "pages") {
     if (!path) return res.status(400).json({ error: "path param required" });
 
@@ -306,13 +298,15 @@ export default async function handler(req, res) {
           pages = await pillPages(path);
         } catch (e) {
           console.warn("[MangaPill] pages failed:", e.message);
-          return res.status(502).json({ error: "MangaPill failed. Supply an AtsuMoe path." });
+          return res
+            .status(502)
+            .json({ error: "MangaPill failed. Supply an AtsuMoe path." });
         }
       }
 
-      // Return proxied URLs so the browser never hits the source CDN directly
       const proxied = pages.map(
-        (u) => `/api/manga?action=image&source=${source || "mangapill"}&url=${encodeURIComponent(u)}`
+        (u) =>
+          `/api/manga?action=image&source=${source || "mangapill"}&url=${encodeURIComponent(u)}`
       );
 
       return res.status(200).json({ pages: proxied, total: proxied.length });
@@ -321,5 +315,7 @@ export default async function handler(req, res) {
     }
   }
 
-  return res.status(400).json({ error: "Invalid action. Use: search | chapters | pages | image" });
+  return res
+    .status(400)
+    .json({ error: "Invalid action. Use: search | chapters | pages | image" });
 }
