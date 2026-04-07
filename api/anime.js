@@ -25,8 +25,6 @@ export default async function handler(req, res) {
     ? genres.split(",").map((g) => GENRE_MAP[g]).filter(Boolean)
     : [];
 
-  // Relations field pulls the source/adaptation manga and its MAL ID
-  // This means zero searching needed when opening MangaReader
   const mediaFields = `
     id
     idMal
@@ -34,27 +32,17 @@ export default async function handler(req, res) {
     coverImage { extraLarge large }
     averageScore
     genres
-    episodes
+    chapters
     status
     description(asHtml: false)
-    relations {
-      edges {
-        relationType
-        node {
-          id
-          idMal
-          type
-          format
-        }
-      }
-    }
+    format
   `;
 
   const query = q
     ? `
       query ($search: String, $perPage: Int) {
         Page(perPage: $perPage) {
-          media(search: $search, type: ANIME, format_in: [TV], sort: [SCORE_DESC]) {
+          media(search: $search, type: MANGA, sort: [SCORE_DESC]) {
             ${mediaFields}
           }
         }
@@ -64,7 +52,7 @@ export default async function handler(req, res) {
     ? `
       query ($genres: [String], $perPage: Int) {
         Page(perPage: $perPage) {
-          media(genre_in: $genres, type: ANIME, format_in: [TV], sort: [SCORE_DESC]) {
+          media(genre_in: $genres, type: MANGA, sort: [SCORE_DESC]) {
             ${mediaFields}
           }
         }
@@ -81,7 +69,7 @@ export default async function handler(req, res) {
   try {
     const response = await fetch("https://graphql.anilist.co", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ query, variables }),
     });
 
@@ -92,38 +80,29 @@ export default async function handler(req, res) {
     const json = await response.json();
     const media = json.data?.Page?.media || [];
 
-    const data = media.map((m) => {
-      // Find the source manga relation and grab its MAL ID directly
-      const mangaEdge = m.relations?.edges?.find(
-        (e) =>
-          e.node.type === "MANGA" &&
-          (e.relationType === "SOURCE" || e.relationType === "ADAPTATION")
-      );
-      const manga_mal_id = mangaEdge?.node?.idMal || null;
-
-      return {
-        mal_id: m.idMal,
-        anilist_id: m.id,
-        manga_mal_id,                          // ← direct manga MAL ID, no searching needed
-        title: m.title.english || m.title.romaji,
-        title_english: m.title.english,
-        title_japanese: m.title.native,
-        images: {
-          webp: {
-            large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-            image_url: m.coverImage.large,
-          },
-          jpg: {
-            large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-          },
+    const data = media.map((m) => ({
+      mal_id: m.idMal,
+      anilist_id: m.id,
+      title: m.title.english || m.title.romaji,
+      title_english: m.title.english,
+      title_romaji: m.title.romaji,
+      title_japanese: m.title.native,
+      images: {
+        webp: {
+          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
+          image_url: m.coverImage.large,
         },
-        score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
-        genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
-        episodes: m.episodes,
-        status: m.status,
-        synopsis: m.description,
-      };
-    });
+        jpg: {
+          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
+        },
+      },
+      score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
+      genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
+      chapters: m.chapters,
+      status: m.status,
+      format: m.format,
+      synopsis: m.description,
+    }));
 
     return res.status(200).json({ data });
   } catch (err) {
