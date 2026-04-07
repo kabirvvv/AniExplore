@@ -22,9 +22,8 @@ export default function MangaReader({ anime, onClose }) {
     setLoading(true);
     setError(null);
     try {
-      // Pass all title variants so the API can try each one
       const params = new URLSearchParams({
-        action: "search",
+        action:         "search",
         title:          anime.title          || "",
         title_english:  anime.title_english  || "",
         title_japanese: anime.title_japanese || "",
