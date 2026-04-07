@@ -4,13 +4,9 @@ import {
   ChevronDown, ChevronUp, ImageOff, FilterX, Lightbulb,
   Zap, Layers, RefreshCw, AlertTriangle, WifiOff, Clock,
 } from "lucide-react";
-import MangaReader from "./MangaReader";
+import MangaDetailPage from "./MangaDetailPage";
 
-const API = {
-  manga: "/api/anime",
-  topManga: "/api/top-anime",
-  grok: "/api/grok",
-};
+const API = { manga: "/api/anime", topManga: "/api/top-anime", grok: "/api/grok" };
 
 const GENRE_MAP = {
   "Action": 1, "Adventure": 2, "Avant Garde": 5, "Award Winning": 46, "Boys Love": 28,
@@ -22,10 +18,10 @@ const GENRE_MAP = {
   "Work Life": 48, "History": 13, "Martial Arts": 17, "Parody": 20, "Samurai": 21,
   "Space": 29, "Vampire": 32, "Harem": 35, "Police": 39, "School": 23, "Super Power": 31,
 };
-
 const ALL_GENRES = Object.keys(GENRE_MAP).sort();
 
-const MangaCard = ({ manga, isPriority, onRead }) => {
+// ── MANGA CARD ────────────────────────────────────────────────────────────────
+const MangaCard = ({ manga, isPriority, onClick }) => {
   const [imageError, setImageError] = useState(false);
   const coverUrl = useMemo(() => (
     manga.images?.webp?.large_image_url ||
@@ -35,61 +31,54 @@ const MangaCard = ({ manga, isPriority, onRead }) => {
 
   return (
     <div
-      onClick={() => onRead(manga)}
-      className={`group cursor-pointer transition-all duration-500 ${
-        isPriority ? "ring-2 ring-indigo-500/50 rounded-2xl scale-[1.02]" : "hover:scale-[1.03]"
+      onClick={() => onClick(manga)}
+      className={`group cursor-pointer transition-all duration-300 active:scale-95 ${
+        isPriority ? "ring-2 ring-indigo-500/50 rounded-2xl" : ""
       }`}
     >
-      <div className="relative aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl bg-gray-900 border border-gray-800">
+      <div className="relative aspect-[2/3] rounded-xl sm:rounded-2xl overflow-hidden shadow-xl bg-gray-900 border border-gray-800/50">
         {coverUrl && !imageError ? (
           <img
             src={coverUrl}
             alt={manga.title}
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
             onError={() => setImageError(true)}
           />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 text-gray-700 p-6 text-center">
-            <ImageOff className="w-12 h-12 mb-3 opacity-20" />
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-40">
-              Cover Missing
-            </span>
+          <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 text-gray-700 p-4 text-center">
+            <ImageOff className="w-8 h-8 mb-2 opacity-20" />
+            <span className="text-[9px] font-bold uppercase tracking-wider opacity-30">No Cover</span>
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/20 to-transparent opacity-90" />
+        <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/10 to-transparent" />
 
         {isPriority && (
-          <div className="absolute top-3 left-3 bg-indigo-600/90 backdrop-blur-md px-2.5 py-1 rounded-lg flex items-center gap-1.5 border border-white/20 shadow-xl z-10">
-            <Zap className="w-3 h-3 text-white fill-white" />
-            <span className="text-[10px] font-black text-white uppercase tracking-tighter">
-              Top Match
-            </span>
+          <div className="absolute top-2 left-2 bg-indigo-600/90 backdrop-blur px-2 py-0.5 rounded-lg flex items-center gap-1 z-10">
+            <Zap className="w-2.5 h-2.5 text-white fill-white" />
+            <span className="text-[8px] font-black text-white uppercase">Top</span>
           </div>
         )}
-
-        <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg flex items-center gap-1 border border-white/10 z-10">
-          <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-          <span className="text-[11px] font-bold text-white">{manga.score || "N/A"}</span>
+        <div className="absolute top-2 right-2 bg-black/60 backdrop-blur px-1.5 py-0.5 rounded-lg flex items-center gap-0.5 z-10">
+          <Star className="w-2.5 h-2.5 text-yellow-400 fill-yellow-400" />
+          <span className="text-[10px] font-bold text-white">{manga.score || "?"}</span>
         </div>
 
-        <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/20 transition-all duration-300 flex items-center justify-center">
-          <div className="opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center gap-2 px-4 py-2 bg-indigo-600/90 backdrop-blur-md rounded-2xl border border-indigo-400/30 shadow-xl">
-            <BookOpen className="w-4 h-4 text-white" />
-            <span className="text-xs font-black text-white uppercase tracking-widest">Read</span>
+        {/* Hover overlay — desktop only */}
+        <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/15 transition-all duration-300 hidden sm:flex items-center justify-center">
+          <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/90 backdrop-blur rounded-xl">
+            <BookOpen className="w-3.5 h-3.5 text-white" />
+            <span className="text-[10px] font-black text-white uppercase tracking-wider">View</span>
           </div>
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 p-5">
-          <h3 className="font-bold text-white text-sm leading-tight mb-2 drop-shadow-2xl line-clamp-2 group-hover:text-indigo-300 transition-colors">
+        <div className="absolute bottom-0 left-0 right-0 p-3">
+          <h3 className="font-bold text-white text-xs sm:text-sm leading-tight line-clamp-2 group-hover:text-indigo-300 transition-colors">
             {manga.title}
           </h3>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1 mt-1.5">
             {manga.genres?.slice(0, 2).map((g) => (
-              <span
-                key={g.mal_id}
-                className="text-[9px] font-bold bg-white/5 backdrop-blur-md text-gray-300 px-2 py-0.5 rounded border border-white/10 uppercase tracking-tighter"
-              >
+              <span key={g.mal_id} className="text-[8px] sm:text-[9px] font-bold bg-white/5 text-gray-400 px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-tight">
                 {g.name}
               </span>
             ))}
@@ -102,10 +91,9 @@ const MangaCard = ({ manga, isPriority, onRead }) => {
 
 const FormattedText = ({ text }) => {
   if (!text) return null;
-  const parts = text.split(/(\*{4}.*?\*{4}|\*{2}.*?\*{2})/g);
   return (
     <span>
-      {parts.map((part, i) => {
+      {text.split(/(\*{4}.*?\*{4}|\*{2}.*?\*{2})/g).map((part, i) => {
         if (part.startsWith("****") && part.endsWith("****"))
           return <strong key={i} className="font-black text-white">{part.slice(4, -4)}</strong>;
         if (part.startsWith("**") && part.endsWith("**"))
@@ -116,33 +104,25 @@ const FormattedText = ({ text }) => {
   );
 };
 
-const CooldownBadge = ({ seconds }) => (
-  <div className="flex items-center gap-2 px-4 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl">
-    <Clock className="w-3.5 h-3.5 text-yellow-400 animate-pulse" />
-    <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">
-      AI Cooling Down — {seconds}s
-    </span>
-  </div>
-);
-
+// ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [searchQuery, setSearchQuery]     = useState("");
+  const [searchQuery, setSearchQuery]       = useState("");
   const [selectedGenres, setSelectedGenres] = useState([]);
-  const [mangaList, setMangaList]         = useState([]);
-  const [priorityIds, setPriorityIds]     = useState(new Set());
-  const [isLoading, setIsLoading]         = useState(true);
-  const [fetchError, setFetchError]       = useState(null);
-  const [errorType, setErrorType]         = useState(null);
-  const [aiOpen, setAiOpen]               = useState(false);
-  const [aiInput, setAiInput]             = useState("");
-  const [showAllGenres, setShowAllGenres] = useState(false);
-  const [fallbackMode, setFallbackMode]   = useState(null);
-  const [chatHistory, setChatHistory]     = useState([
-    { role: "assistant", text: "System Online. AniExplore AI ready. Ask me for recommendations, comparisons, or anything manga!" },
+  const [mangaList, setMangaList]           = useState([]);
+  const [priorityIds, setPriorityIds]       = useState(new Set());
+  const [isLoading, setIsLoading]           = useState(true);
+  const [fetchError, setFetchError]         = useState(null);
+  const [errorType, setErrorType]           = useState(null);
+  const [aiOpen, setAiOpen]                 = useState(false);
+  const [aiInput, setAiInput]               = useState("");
+  const [showAllGenres, setShowAllGenres]   = useState(false);
+  const [fallbackMode, setFallbackMode]     = useState(null);
+  const [chatHistory, setChatHistory]       = useState([
+    { role: "assistant", text: "System Online. Ask me for manga recommendations, comparisons, or anything!" },
   ]);
-  const [isTyping, setIsTyping]           = useState(false);
-  const [aiCooldown, setAiCooldown]       = useState(0);
-  const [readingManga, setReadingManga]   = useState(null);
+  const [isTyping, setIsTyping]             = useState(false);
+  const [aiCooldown, setAiCooldown]         = useState(0);
+  const [selectedManga, setSelectedManga]   = useState(null); // opens detail page
 
   const cooldownRef = useRef(null);
   const chatEndRef  = useRef(null);
@@ -166,7 +146,6 @@ export default function App() {
     let resolvedErrorType = null;
     try {
       const params = new URLSearchParams({ limit: "24" });
-
       let endpoint;
       if (searchQuery.trim()) {
         endpoint = API.manga;
@@ -182,29 +161,17 @@ export default function App() {
       }
 
       let response;
-      try {
-        response = await fetch(`${endpoint}?${params.toString()}`);
-      } catch (networkErr) {
-        resolvedErrorType = "network";
-        throw new Error(`Cannot reach the API.\n${networkErr.message}`);
-      }
+      try { response = await fetch(`${endpoint}?${params}`); }
+      catch (networkErr) { resolvedErrorType = "network"; throw new Error(`Cannot reach the API.\n${networkErr.message}`); }
 
       const json = await response.json();
-      if (!response.ok) {
-        resolvedErrorType = response.status === 429 ? "ratelimit" : "http";
-        throw new Error(json.error || `HTTP ${response.status}`);
-      }
+      if (!response.ok) { resolvedErrorType = response.status === 429 ? "ratelimit" : "http"; throw new Error(json.error || `HTTP ${response.status}`); }
 
       const data = json.data || [];
-
       if (selectedGenres.length > 1 && data.length > 0) {
         const targetIds = selectedGenres.map((g) => GENRE_MAP[g]);
-        const perfect = data.filter((m) =>
-          targetIds.every((id) => (m.genres?.map((g) => g.mal_id) || []).includes(id))
-        );
-        const rest = data.filter(
-          (m) => !targetIds.every((id) => (m.genres?.map((g) => g.mal_id) || []).includes(id))
-        );
+        const perfect = data.filter((m) => targetIds.every((id) => (m.genres?.map((g) => g.mal_id) || []).includes(id)));
+        const rest = data.filter((m) => !targetIds.every((id) => (m.genres?.map((g) => g.mal_id) || []).includes(id)));
         setPriorityIds(new Set(perfect.map((m) => m.mal_id)));
         if (perfect.length > 0) setFallbackMode("discovery");
         setMangaList([...perfect, ...rest]);
@@ -221,19 +188,11 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    const t = setTimeout(fetchManga, 700);
-    return () => clearTimeout(t);
-  }, [searchQuery, selectedGenres]);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatHistory]);
+  useEffect(() => { const t = setTimeout(fetchManga, 700); return () => clearTimeout(t); }, [searchQuery, selectedGenres]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatHistory]);
 
   const toggleGenre = (genre) =>
-    setSelectedGenres((prev) =>
-      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
-    );
+    setSelectedGenres((prev) => prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]);
 
   const handleAiSearch = async (e) => {
     e.preventDefault();
@@ -253,115 +212,117 @@ export default function App() {
       if (!response.ok) {
         if (data.isRateLimit || response.status === 429) {
           startCooldown(30);
-          setChatHistory((prev) => [...prev, {
-            role: "assistant",
-            text: "AI is temporarily rate-limited. Please wait 30 seconds before sending another message.",
-          }]);
-        } else {
-          throw new Error(data.error || "AI error");
-        }
+          setChatHistory((prev) => [...prev, { role: "assistant", text: "AI is temporarily rate-limited. Please wait 30 seconds." }]);
+        } else throw new Error(data.error || "AI error");
         return;
       }
       setChatHistory((prev) => [...prev, { role: "assistant", text: data.reply }]);
     } catch (err) {
-      setChatHistory((prev) => [...prev, {
-        role: "assistant",
-        text: `Connection error: ${err.message}`,
-      }]);
+      setChatHistory((prev) => [...prev, { role: "assistant", text: `Connection error: ${err.message}` }]);
     } finally {
       setIsTyping(false);
     }
   };
 
-  const displayedGenres = showAllGenres ? ALL_GENRES : ALL_GENRES.slice(0, 10);
-  const errorIcon = errorType === "network"
-    ? <WifiOff className="w-10 h-10 text-red-500/60" />
-    : <AlertTriangle className="w-10 h-10 text-red-500/60" />;
-  const errorTitle = errorType === "ratelimit"
-    ? "Rate Limited"
-    : errorType === "network"
-    ? "Network Unreachable"
-    : "Data Pipeline Error";
+  const displayedGenres = showAllGenres ? ALL_GENRES : ALL_GENRES.slice(0, 12);
+  const errorIcon = errorType === "network" ? <WifiOff className="w-10 h-10 text-red-500/60" /> : <AlertTriangle className="w-10 h-10 text-red-500/60" />;
 
+  // ── DETAIL PAGE ────────────────────────────────────────────────────────────
+  if (selectedManga) {
+    return (
+      <MangaDetailPage
+        manga={selectedManga}
+        onBack={() => setSelectedManga(null)}
+        onSelectManga={(m) => setSelectedManga(m)}
+      />
+    );
+  }
+
+  // ── MAIN PAGE ──────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans selection:bg-indigo-500 selection:text-white">
-      <header className="sticky top-0 z-30 bg-gray-950/80 backdrop-blur-2xl border-b border-white/5 shadow-2xl">
-        <div className="max-w-[1600px] mx-auto px-6 py-5">
-          <div className="flex items-center justify-between gap-8">
-            <div className="flex items-center gap-4">
-              <div className="bg-indigo-600 p-2.5 rounded-2xl shadow-xl shadow-indigo-600/30">
-                <BookOpen className="w-6 h-6 text-white" />
+
+      {/* ── HEADER ── */}
+      <header className="sticky top-0 z-30 bg-gray-950/90 backdrop-blur-2xl border-b border-white/5 shadow-xl">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex items-center gap-3 sm:gap-6">
+            {/* Logo */}
+            <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              <div className="bg-indigo-600 p-2 sm:p-2.5 rounded-xl sm:rounded-2xl shadow-lg shadow-indigo-600/30">
+                <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
               </div>
-              <div>
-                <h1 className="text-2xl font-black tracking-tighter bg-gradient-to-br from-white to-gray-500 bg-clip-text text-transparent">
+              <div className="hidden sm:block">
+                <h1 className="text-xl sm:text-2xl font-black tracking-tighter bg-gradient-to-br from-white to-gray-500 bg-clip-text text-transparent">
                   MANGAEXPLORE
                 </h1>
-                <p className="text-[10px] font-bold text-indigo-400 tracking-[0.2em] uppercase leading-none mt-1">
-                  Manga Discovery Terminal
+                <p className="text-[9px] font-bold text-indigo-400 tracking-[0.2em] uppercase leading-none">
+                  Discovery Terminal
                 </p>
               </div>
+              <h1 className="sm:hidden text-lg font-black tracking-tighter text-white">MANGA</h1>
             </div>
-            <div className="flex flex-1 max-w-2xl items-center gap-4">
-              <div className="relative w-full group">
-                <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 group-focus-within:text-indigo-400 transition-colors" />
-                <input
-                  type="text"
-                  placeholder="Search manga..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-14 pr-6 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all placeholder:text-gray-600 focus:bg-white/10"
-                />
-              </div>
-              <button
-                onClick={() => setAiOpen(true)}
-                className="flex items-center gap-2.5 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-bold text-sm transition-all shadow-2xl shadow-indigo-600/20 active:scale-95 group whitespace-nowrap"
-              >
-                <Sparkles className="w-4 h-4 group-hover:animate-pulse" />
-                <span className="hidden md:inline">Ask AI</span>
-              </button>
+
+            {/* Search */}
+            <div className="relative flex-1 group">
+              <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 group-focus-within:text-indigo-400 transition-colors" />
+              <input
+                type="text"
+                placeholder="Search manga..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 sm:pl-12 pr-3 sm:pr-5 py-2.5 sm:py-3.5 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all placeholder:text-gray-600 focus:bg-white/10"
+              />
             </div>
+
+            {/* AI button */}
+            <button
+              onClick={() => setAiOpen(true)}
+              className="flex items-center gap-1.5 sm:gap-2.5 px-3 sm:px-5 py-2.5 sm:py-3.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl sm:rounded-2xl font-bold text-xs sm:text-sm transition-all shadow-lg shadow-indigo-600/20 active:scale-95 flex-shrink-0"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span className="hidden sm:inline">Ask AI</span>
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-[1600px] mx-auto px-6 py-10">
-        {/* Genre filters */}
-        <section className="mb-14 bg-white/5 p-8 rounded-[2.5rem] border border-white/5 shadow-inner">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-indigo-500/10 rounded-xl">
-                <Hash className="w-5 h-5 text-indigo-400" />
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 sm:py-10">
+
+        {/* ── GENRE FILTERS ── */}
+        <section className="mb-8 sm:mb-12 bg-white/5 p-4 sm:p-8 rounded-2xl sm:rounded-[2.5rem] border border-white/5">
+          <div className="flex items-center justify-between mb-4 sm:mb-6">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="p-1.5 sm:p-2 bg-indigo-500/10 rounded-lg sm:rounded-xl">
+                <Hash className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
               </div>
-              <h2 className="font-black text-white tracking-widest uppercase text-xs">
-                Genre Filters
-              </h2>
+              <h2 className="font-black text-white tracking-widest uppercase text-[10px] sm:text-xs">Genres</h2>
             </div>
-            <div className="flex gap-6">
+            <div className="flex gap-3 sm:gap-5">
               {selectedGenres.length > 0 && (
                 <button
                   onClick={() => { setSelectedGenres([]); setFallbackMode(null); }}
-                  className="text-[10px] font-black text-red-400 hover:text-red-300 flex items-center gap-1.5 transition-colors uppercase tracking-widest"
+                  className="text-[10px] font-black text-red-400 hover:text-red-300 flex items-center gap-1 transition uppercase tracking-widest"
                 >
-                  Clear All <FilterX className="w-3.5 h-3.5" />
+                  Clear <FilterX className="w-3 h-3" />
                 </button>
               )}
               <button
                 onClick={() => setShowAllGenres(!showAllGenres)}
-                className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors uppercase tracking-widest"
+                className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition uppercase tracking-widest"
               >
-                {showAllGenres ? "Show Less" : "Show All"}
-                {showAllGenres ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                {showAllGenres ? "Less" : "More"}
+                {showAllGenres ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
               </button>
             </div>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
             {displayedGenres.map((genre) => (
               <button
                 key={genre}
                 onClick={() => toggleGenre(genre)}
-                className={`px-6 py-2.5 rounded-2xl text-[11px] font-bold uppercase tracking-wider transition-all duration-300 border ${
+                className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all duration-200 border active:scale-95 ${
                   selectedGenres.includes(genre)
-                    ? "bg-indigo-600 text-white shadow-xl shadow-indigo-600/40 border-indigo-500 scale-105"
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border-indigo-500"
                     : "bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-200 border-white/5"
                 }`}
               >
@@ -371,31 +332,27 @@ export default function App() {
           </div>
         </section>
 
-        {/* Results header */}
-        <div className="flex items-end justify-between mb-10 px-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3 text-indigo-500 text-[10px] font-black uppercase tracking-[0.4em]">
-              <Layers className="w-4 h-4" /> Live Feed
+        {/* ── RESULTS HEADER ── */}
+        <div className="flex items-center justify-between mb-5 sm:mb-8 px-1">
+          <div>
+            <div className="flex items-center gap-2 text-indigo-500 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.3em] sm:tracking-[0.4em] mb-1">
+              <Layers className="w-3.5 h-3.5" /> Live Feed
             </div>
-            <div className="flex items-center gap-4">
-              <h2 className="text-4xl font-black text-white tracking-tighter">
-                {searchQuery
-                  ? `"${searchQuery}"`
-                  : selectedGenres.length > 0
-                  ? "Filtered Manga"
-                  : "Top Manga"}
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tighter">
+                {searchQuery ? `"${searchQuery}"` : selectedGenres.length > 0 ? "Filtered" : "Top Manga"}
               </h2>
               {!isLoading && !fetchError && (
-                <span className="bg-white/5 border border-white/10 px-3 py-1 rounded-full text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                  {mangaList.length} titles
+                <span className="bg-white/5 border border-white/10 px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                  {mangaList.length}
                 </span>
               )}
             </div>
             {fallbackMode === "discovery" && (
-              <div className="flex items-center gap-3 mt-4 py-2 px-5 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl w-fit">
-                <Lightbulb className="w-4 h-4 text-indigo-400" />
-                <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
-                  Prioritizing exact genre matches
+              <div className="flex items-center gap-2 mt-2 py-1.5 px-3 sm:px-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl w-fit">
+                <Lightbulb className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="text-[9px] sm:text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
+                  Prioritizing exact matches
                 </span>
               </div>
             )}
@@ -403,112 +360,99 @@ export default function App() {
           {!isLoading && (
             <button
               onClick={fetchManga}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-gray-400 hover:text-white transition-all uppercase tracking-widest"
+              className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-gray-400 hover:text-white transition uppercase tracking-widest"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> Refresh
+              <RefreshCw className="w-3 h-3" />
+              <span className="hidden sm:inline">Refresh</span>
             </button>
           )}
         </div>
 
-        {/* Loading skeletons */}
+        {/* ── SKELETON ── */}
         {isLoading && (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-8 animate-pulse">
+          <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-6 animate-pulse">
             {[...Array(12)].map((_, i) => (
-              <div key={i} className="aspect-[2/3] bg-white/5 rounded-[2rem] border border-white/5" />
+              <div key={i} className="aspect-[2/3] bg-white/5 rounded-xl sm:rounded-[2rem] border border-white/5" />
             ))}
           </div>
         )}
 
-        {/* Error state */}
+        {/* ── ERROR ── */}
         {!isLoading && fetchError && (
-          <div className="text-center py-24 bg-red-950/10 rounded-[3rem] border border-dashed border-red-500/20 mx-4">
-            <div className="bg-gray-900 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-2xl">
+          <div className="text-center py-16 sm:py-24 bg-red-950/10 rounded-2xl sm:rounded-[3rem] border border-dashed border-red-500/20 mx-2">
+            <div className="bg-gray-900 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
               {errorIcon}
             </div>
-            <h3 className="text-2xl font-black text-red-400/80 mb-3 tracking-tighter">{errorTitle}</h3>
-            <pre className="text-xs text-gray-600 mb-8 font-mono max-w-md mx-auto whitespace-pre-wrap break-words px-6 text-left bg-black/20 py-4 rounded-2xl">
-              {fetchError}
-            </pre>
-            <div className="flex gap-4 justify-center">
-              <button
-                onClick={fetchManga}
-                className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition-all uppercase text-xs tracking-widest active:scale-95 flex items-center gap-2"
-              >
+            <h3 className="text-xl sm:text-2xl font-black text-red-400/80 mb-2 tracking-tighter">
+              {errorType === "ratelimit" ? "Rate Limited" : errorType === "network" ? "Network Error" : "Error"}
+            </h3>
+            <pre className="text-[10px] text-gray-600 mb-6 font-mono max-w-xs mx-auto whitespace-pre-wrap break-words px-4">{fetchError}</pre>
+            <div className="flex gap-3 justify-center">
+              <button onClick={fetchManga} className="px-5 sm:px-8 py-2.5 sm:py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition uppercase text-xs tracking-widest active:scale-95 flex items-center gap-2">
                 <RefreshCw className="w-3.5 h-3.5" /> Retry
               </button>
-              <button
-                onClick={() => { setSearchQuery(""); setSelectedGenres([]); setFallbackMode(null); }}
-                className="px-8 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-2xl font-black transition-all uppercase text-xs tracking-widest"
-              >
-                Reset Filters
+              <button onClick={() => { setSearchQuery(""); setSelectedGenres([]); }} className="px-5 sm:px-8 py-2.5 sm:py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-2xl font-black transition uppercase text-xs tracking-widest">
+                Reset
               </button>
             </div>
           </div>
         )}
 
-        {/* Manga grid */}
+        {/* ── MANGA GRID ── */}
         {!isLoading && !fetchError && mangaList.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-8">
+          <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 sm:gap-5 md:gap-6">
             {mangaList.map((manga) => (
               <MangaCard
                 key={manga.anilist_id || manga.mal_id}
                 manga={manga}
                 isPriority={priorityIds.has(manga.mal_id)}
-                onRead={setReadingManga}
+                onClick={setSelectedManga}
               />
             ))}
           </div>
         )}
 
-        {/* Empty state */}
+        {/* ── EMPTY ── */}
         {!isLoading && !fetchError && mangaList.length === 0 && (
-          <div className="text-center py-40 bg-white/5 rounded-[4rem] border border-dashed border-white/10 mx-4">
-            <div className="bg-gray-900 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8 shadow-2xl">
-              <Info className="w-10 h-10 text-gray-700" />
-            </div>
-            <h3 className="text-3xl font-black text-gray-400 mb-3 tracking-tighter">No Results</h3>
-            <button
-              onClick={() => { setSearchQuery(""); setSelectedGenres([]); setFallbackMode(null); }}
-              className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition-all uppercase text-xs tracking-widest active:scale-95"
-            >
-              Reset Filters
+          <div className="text-center py-28 bg-white/5 rounded-[3rem] border border-dashed border-white/10">
+            <Info className="w-10 h-10 text-gray-700 mx-auto mb-4" />
+            <h3 className="text-2xl font-black text-gray-400 mb-4 tracking-tighter">No Results</h3>
+            <button onClick={() => { setSearchQuery(""); setSelectedGenres([]); }} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition uppercase text-xs tracking-widest active:scale-95">
+              Reset
             </button>
           </div>
         )}
       </main>
 
-      {/* AI panel */}
+      {/* ── AI PANEL ── */}
       {aiOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-xl bg-gray-950 h-full flex flex-col shadow-2xl border-l border-white/5">
-            <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/5 backdrop-blur-xl">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-600/20">
-                  <Sparkles className="w-6 h-6 text-white" />
+          <div className="w-full max-w-full sm:max-w-xl bg-gray-950 h-full flex flex-col shadow-2xl border-l border-white/5">
+            <div className="p-5 sm:p-8 border-b border-white/5 flex items-center justify-between bg-white/5">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <div className="p-2.5 sm:p-3 bg-indigo-600 rounded-xl sm:rounded-2xl shadow-lg shadow-indigo-600/20">
+                  <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="font-black text-xl text-white uppercase tracking-tighter leading-none">
-                    AI Consultant
-                  </h3>
-                  <p className="text-[10px] text-indigo-400 font-black uppercase tracking-[0.3em] mt-1">
-                    Powered by Groq
-                  </p>
+                  <h3 className="font-black text-lg sm:text-xl text-white uppercase tracking-tighter leading-none">AI Consultant</h3>
+                  <p className="text-[9px] sm:text-[10px] text-indigo-400 font-black uppercase tracking-[0.3em] mt-0.5">Powered by Groq</p>
                 </div>
               </div>
-              <button onClick={() => setAiOpen(false)} className="p-3 hover:bg-white/10 rounded-2xl transition-colors group">
-                <X className="w-6 h-6 text-gray-500 group-hover:text-white transition-colors" />
+              <button onClick={() => setAiOpen(false)} className="p-2.5 hover:bg-white/10 rounded-xl transition">
+                <X className="w-5 h-5 text-gray-500 hover:text-white transition" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar bg-gray-950/50">
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-5 sm:space-y-8 bg-gray-950/50">
               {chatHistory.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] px-6 py-4 rounded-[2rem] text-sm leading-relaxed shadow-2xl ${
+                  <div className={`max-w-[88%] px-4 sm:px-6 py-3 sm:py-4 rounded-[1.5rem] sm:rounded-[2rem] text-sm leading-relaxed shadow-xl ${
                     msg.role === "user"
                       ? "bg-indigo-600 text-white rounded-tr-none"
                       : "bg-white/5 text-gray-300 rounded-tl-none border border-white/10"
                   }`}>
                     {msg.text.split("\n").map((line, idx) => (
-                      <p key={idx} className={idx > 0 ? "mt-3" : ""}>
+                      <p key={idx} className={idx > 0 ? "mt-2 sm:mt-3" : ""}>
                         <FormattedText text={line} />
                       </p>
                     ))}
@@ -517,38 +461,42 @@ export default function App() {
               ))}
               {isTyping && (
                 <div className="flex justify-start">
-                  <div className="bg-white/5 px-8 py-4 rounded-[2rem] rounded-tl-none border border-white/10 flex items-center gap-4">
+                  <div className="bg-white/5 px-6 py-3 rounded-[2rem] rounded-tl-none border border-white/10 flex items-center gap-3">
                     <div className="flex gap-1">
-                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: "-0.3s" }} />
-                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: "-0.15s" }} />
-                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" />
+                      {["-0.3s", "-0.15s", "0s"].map((d) => (
+                        <div key={d} className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: d }} />
+                      ))}
                     </div>
-                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
-                      AI Processing...
-                    </span>
+                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Processing...</span>
                   </div>
                 </div>
               )}
               <div ref={chatEndRef} />
             </div>
-            <div className="p-8 border-t border-white/5 bg-white/5 backdrop-blur-xl space-y-3">
-              {aiCooldown > 0 && <CooldownBadge seconds={aiCooldown} />}
-              <div className="relative group">
+
+            <div className="p-4 sm:p-8 border-t border-white/5 bg-white/5 space-y-2">
+              {aiCooldown > 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+                  <Clock className="w-3.5 h-3.5 text-yellow-400 animate-pulse" />
+                  <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Cooling Down — {aiCooldown}s</span>
+                </div>
+              )}
+              <div className="relative">
                 <input
                   type="text"
-                  placeholder={aiCooldown > 0 ? `Available in ${aiCooldown}s...` : "Ask about manga..."}
+                  placeholder={aiCooldown > 0 ? `Wait ${aiCooldown}s...` : "Ask about manga..."}
                   value={aiInput}
                   onChange={(e) => setAiInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAiSearch(e)}
                   disabled={aiCooldown > 0}
-                  className="w-full bg-white/5 border border-white/10 rounded-[1.5rem] py-5 pl-6 pr-16 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-sm font-medium placeholder:text-gray-700 group-focus-within:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-5 pr-14 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-sm font-medium placeholder:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 />
                 <button
                   onClick={handleAiSearch}
                   disabled={isTyping || aiCooldown > 0 || !aiInput.trim()}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-500 transition-all active:scale-90 shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-500 transition active:scale-90 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {aiCooldown > 0 ? <Clock className="w-5 h-5" /> : <Send className="w-5 h-5" />}
+                  {aiCooldown > 0 ? <Clock className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -556,16 +504,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Manga Reader */}
-      {readingManga && (
-        <MangaReader anime={readingManga} onClose={() => setReadingManga(null)} />
-      )}
-
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.1); }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
     </div>
   );
