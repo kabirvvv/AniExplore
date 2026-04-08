@@ -5,16 +5,18 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=60");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const { limit = 24 } = req.query;
+  const { limit = 24, page = 1 } = req.query;
 
   const query = `
-    query ($perPage: Int) {
-      Page(perPage: $perPage) {
+    query ($perPage: Int, $page: Int) {
+      Page(page: $page, perPage: $perPage) {
+        pageInfo { total currentPage hasNextPage }
         media(
           type: MANGA,
           sort: [SCORE_DESC],
           status_not: NOT_YET_RELEASED,
-          format_in: [MANGA, ONE_SHOT]
+          format_in: [MANGA, ONE_SHOT],
+          isAdult: false
         ) {
           id
           idMal
@@ -35,7 +37,7 @@ export default async function handler(req, res) {
     const response = await fetch("https://graphql.anilist.co", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query, variables: { perPage: parseInt(limit) } }),
+      body: JSON.stringify({ query, variables: { perPage: parseInt(limit), page: parseInt(page) } }),
     });
 
     if (!response.ok) {
@@ -43,7 +45,12 @@ export default async function handler(req, res) {
     }
 
     const json = await response.json();
-    const media = json.data?.Page?.media || [];
+    if (json.errors) {
+      return res.status(400).json({ error: json.errors[0]?.message || "AniList query error" });
+    }
+
+    const pageInfo = json.data?.Page?.pageInfo || {};
+    const media    = json.data?.Page?.media || [];
 
     const data = media.map((m) => ({
       mal_id: m.idMal,
@@ -57,9 +64,7 @@ export default async function handler(req, res) {
           large_image_url: m.coverImage.extraLarge || m.coverImage.large,
           image_url: m.coverImage.large,
         },
-        jpg: {
-          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-        },
+        jpg: { large_image_url: m.coverImage.extraLarge || m.coverImage.large },
       },
       score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
       genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
@@ -69,7 +74,15 @@ export default async function handler(req, res) {
       synopsis: m.description,
     }));
 
-    return res.status(200).json({ data });
+    return res.status(200).json({
+      data,
+      pagination: {
+        total: pageInfo.total || data.length,
+        currentPage: pageInfo.currentPage || parseInt(page),
+        hasNextPage: pageInfo.hasNextPage ?? false,
+        perPage: parseInt(limit),
+      },
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
