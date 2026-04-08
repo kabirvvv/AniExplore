@@ -5,7 +5,7 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=60");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const { q, genres, limit = 24 } = req.query;
+  const { q, genres, limit = 24, page = 1 } = req.query;
 
   const GENRE_MAP = {
     "1": "Action", "2": "Adventure", "4": "Comedy", "5": "Avant Garde",
@@ -19,11 +19,16 @@ export default async function handler(req, res) {
     "39": "Police", "40": "Psychological", "41": "Suspense", "42": "Seinen",
     "46": "Award Winning", "47": "Gourmet", "48": "Work Life",
     "62": "Isekai", "63": "Iyashikei",
+    "99": "Hentai", // special — triggers isAdult filter
   };
 
-  const genreFilter = genres
+  const genreList = genres
     ? genres.split(",").map((g) => GENRE_MAP[g]).filter(Boolean)
     : [];
+
+  // Separate hentai from regular genres — AniList uses isAdult flag for it
+  const isHentai = genreList.includes("Hentai");
+  const genreFilter = genreList.filter((g) => g !== "Hentai");
 
   const mediaFields = `
     id
@@ -36,35 +41,53 @@ export default async function handler(req, res) {
     status
     description(asHtml: false)
     format
+    isAdult
   `;
 
-  const query = q
-    ? `
-      query ($search: String, $perPage: Int) {
-        Page(perPage: $perPage) {
-          media(search: $search, type: MANGA, sort: [SCORE_DESC]) {
+  let query, variables;
+
+  if (q) {
+    query = `
+      query ($search: String, $perPage: Int, $page: Int, $isAdult: Boolean) {
+        Page(page: $page, perPage: $perPage) {
+          pageInfo { total currentPage hasNextPage }
+          media(search: $search, type: MANGA, sort: [SCORE_DESC], isAdult: $isAdult) {
             ${mediaFields}
           }
         }
       }
-    `
-    : genreFilter.length > 0
-    ? `
-      query ($genres: [String], $perPage: Int) {
-        Page(perPage: $perPage) {
-          media(genre_in: $genres, type: MANGA, sort: [SCORE_DESC]) {
+    `;
+    variables = {
+      search: q.trim(),
+      perPage: parseInt(limit),
+      page: parseInt(page),
+      isAdult: isHentai ? true : null,
+    };
+  } else if (genreFilter.length > 0 || isHentai) {
+    query = `
+      query ($genres: [String], $perPage: Int, $page: Int, $isAdult: Boolean) {
+        Page(page: $page, perPage: $perPage) {
+          pageInfo { total currentPage hasNextPage }
+          media(
+            ${genreFilter.length > 0 ? "genre_in: $genres," : ""}
+            type: MANGA,
+            sort: [SCORE_DESC],
+            isAdult: $isAdult
+          ) {
             ${mediaFields}
           }
         }
       }
-    `
-    : null;
-
-  if (!query) return res.status(400).json({ error: "q or genres param required" });
-
-  const variables = q
-    ? { search: q, perPage: parseInt(limit) }
-    : { genres: genreFilter, perPage: parseInt(limit) };
+    `;
+    variables = {
+      genres: genreFilter.length > 0 ? genreFilter : undefined,
+      perPage: parseInt(limit),
+      page: parseInt(page),
+      isAdult: isHentai ? true : false,
+    };
+  } else {
+    return res.status(400).json({ error: "q or genres param required" });
+  }
 
   try {
     const response = await fetch("https://graphql.anilist.co", {
@@ -78,7 +101,12 @@ export default async function handler(req, res) {
     }
 
     const json = await response.json();
-    const media = json.data?.Page?.media || [];
+    if (json.errors) {
+      return res.status(400).json({ error: json.errors[0]?.message || "AniList query error" });
+    }
+
+    const pageInfo = json.data?.Page?.pageInfo || {};
+    const media    = json.data?.Page?.media || [];
 
     const data = media.map((m) => ({
       mal_id: m.idMal,
@@ -92,9 +120,7 @@ export default async function handler(req, res) {
           large_image_url: m.coverImage.extraLarge || m.coverImage.large,
           image_url: m.coverImage.large,
         },
-        jpg: {
-          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-        },
+        jpg: { large_image_url: m.coverImage.extraLarge || m.coverImage.large },
       },
       score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
       genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
@@ -102,9 +128,18 @@ export default async function handler(req, res) {
       status: m.status,
       format: m.format,
       synopsis: m.description,
+      is_adult: m.isAdult,
     }));
 
-    return res.status(200).json({ data });
+    return res.status(200).json({
+      data,
+      pagination: {
+        total: pageInfo.total || data.length,
+        currentPage: pageInfo.currentPage || parseInt(page),
+        hasNextPage: pageInfo.hasNextPage ?? false,
+        perPage: parseInt(limit),
+      },
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
