@@ -171,7 +171,6 @@ export default function App() {
   const chatEndRef       = useRef(null);
   const searchRef        = useRef(null);
   const suggestTimerRef       = useRef(null);
-  const triggerImmediateRef   = useRef(false);
   const suggestionClickedRef  = useRef(false);
   const triggerImmediateRef = useRef(false);
   const suggestionClickedRef = useRef(false);
@@ -229,19 +228,21 @@ export default function App() {
 
   // ── FETCH MANGA ───────────────────────────────────────────────────────────
 
-  const fetchManga = useCallback(async (page = 1, append = false) => {
+  const fetchManga = useCallback(async (page = 1, append = false, queryOverride = null) => {
     if (append) setIsLoadingMore(true);
     else setIsLoading(true);
     if (!append) setFetchError(null);
+
+    const activeQuery = queryOverride !== null ? queryOverride : searchQuery;
 
     let resolvedErrorType = null;
     try {
       const params = new URLSearchParams({ limit: "24", page: String(page) });
       let endpoint;
 
-      if (searchQuery.trim()) {
+      if (activeQuery.trim()) {
         endpoint = API.manga;
-        params.append("q", searchQuery.trim());
+        params.append("q", activeQuery.trim());
         setFallbackMode(null);
       } else if (selectedGenres.length > 0) {
         endpoint = API.manga;
@@ -291,9 +292,11 @@ export default function App() {
 
   // Reset + refetch when query/genres change
   useEffect(() => {
-    const delay = triggerImmediateRef.current ? 0 : 700;
-    triggerImmediateRef.current = false;
-    const t = setTimeout(() => fetchManga(1, false), delay);
+    if (suggestionClickedRef.current) {
+      suggestionClickedRef.current = false;
+      return; // already fetched directly in handleSuggestionClick
+    }
+    const t = setTimeout(() => fetchManga(1, false), 700);
     return () => clearTimeout(t);
   }, [searchQuery, selectedGenres]);
 
@@ -309,11 +312,11 @@ export default function App() {
   };
 
   const handleSuggestionClick = (suggestion) => {
-    suggestionClickedRef.current = true;
-    triggerImmediateRef.current = true;
-    setSearchQuery(suggestion.title);
+    suggestionClickedRef.current = true; // skip suggestion re-fetch
     setSuggestions([]);
     setShowSuggestions(false);
+    setSearchQuery(suggestion.title);
+    fetchManga(1, false, suggestion.title); // call directly with override — bypasses stale closure + works even if query unchanged
   };
 
   const handleAiSearch = async (e) => {
