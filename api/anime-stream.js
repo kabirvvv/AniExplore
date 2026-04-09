@@ -1,7 +1,3 @@
-// GET /api/anime-stream?slug={slug}&ep={n}&type={sub|dub}
-//   OR ?malId={id}&title={title}&titleRomaji={t}&ep={n}&type={sub|dub}
-// Proxies AniPub stream endpoint, returns { sources, subtitles, hasDub, hasSub }
-
 const ANIPUB = "https://api.anipub.xyz";
 
 export default async function handler(req, res) {
@@ -14,87 +10,52 @@ export default async function handler(req, res) {
   const { slug, ep, type = "sub", title, titleRomaji } = req.query;
   if (!ep) return res.status(400).json({ error: "ep param required" });
 
-  // Resolve slug from explicit param or derive from title
   const candidates = resolveSlugCandidates(slug, title, titleRomaji);
   if (!candidates.length) return res.status(400).json({ error: "slug or title param required" });
 
+  const errors = [];
+
   for (const candidate of candidates) {
     try {
-      const r = await fetch(`${ANIPUB}/anime/api/stream/${candidate}/${ep}`, {
+      // ✅ FIX 1: pass type as a query param, not a header
+      const url = `${ANIPUB}/anime/api/stream/${candidate}/${ep}?type=${type}`;
+
+      const r = await fetch(url, {
         headers: {
           Accept: "application/json",
           "User-Agent": "Mozilla/5.0",
-          ...(type === "dub" ? { "X-Stream-Type": "dub" } : {}),
         },
       });
-      if (!r.ok) continue;
-      const json = await r.json();
-      if (!json || json.error) continue;
+
+      // ✅ FIX 2: capture the body even on failure so we can debug
+      const text = await r.text();
+      let json;
+      try { json = JSON.parse(text); } catch { json = null; }
+
+      if (!r.ok) {
+        errors.push({ candidate, status: r.status, body: text.slice(0, 200) });
+        continue;
+      }
+      if (!json || json.error) {
+        errors.push({ candidate, status: r.status, apiError: json?.error || "empty body" });
+        continue;
+      }
 
       const normalized = normalize(json, type);
-      if (!normalized.sources?.length) continue;
+      if (!normalized.sources?.length) {
+        errors.push({ candidate, status: r.status, reason: "no sources in response", shape: Object.keys(json) });
+        continue;
+      }
 
       return res.status(200).json({ ...normalized, resolvedSlug: candidate });
-    } catch (_) { continue; }
+    } catch (err) {
+      errors.push({ candidate, exception: err.message });
+    }
   }
 
-  return res.status(404).json({ error: "Stream not available for this episode." });
-}
-
-function resolveSlugCandidates(slug, title, titleRomaji) {
-  const set = new Set();
-  if (slug)        set.add(slug);
-  if (title)       set.add(toSlug(title));
-  if (titleRomaji) set.add(toSlug(titleRomaji));
-
-  // Also try without season/year suffixes
-  for (const s of [...set]) {
-    const stripped = s
-      .replace(/-\d+(st|nd|rd|th)-season$/, "")
-      .replace(/-season-\d+$/, "")
-      .replace(/-part-\d+$/, "")
-      .replace(/-\d{4}$/, "");
-    if (stripped !== s) set.add(stripped);
-  }
-  return [...set];
-}
-
-function toSlug(t = "") {
-  return t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-
-function normalize(json, type) {
-  // Shape A: { sub: "url", dub: "url", subtitles: [] }
-  if (json.sub || json.dub) {
-    const url = type === "dub" ? (json.dub || json.sub) : (json.sub || json.dub);
-    return {
-      sources:   [{ url, quality: "auto" }],
-      subtitles: json.subtitles || json.captions || [],
-      hasSub:    !!json.sub,
-      hasDub:    !!json.dub,
-    };
-  }
-
-  // Shape B: { sources: [{ url, quality, isM3U8 }], tracks: [] }
-  if (json.sources?.length) {
-    return {
-      sources:   json.sources.map((s) => ({ url: s.url, quality: s.quality || "auto" })),
-      subtitles: (json.tracks || []).filter((t) => t.kind === "captions" || t.kind === "subtitles"),
-      hasSub:    true,
-      hasDub:    false,
-    };
-  }
-
-  // Shape C: { url/stream/link: "..." }
-  const url = json.url || json.stream || json.link || json.streamUrl;
-  if (url) {
-    return {
-      sources:   [{ url, quality: "auto" }],
-      subtitles: json.subtitles || [],
-      hasSub:    true,
-      hasDub:    false,
-    };
-  }
-
-  return { sources: [], subtitles: [], hasSub: false, hasDub: false };
+  // ✅ FIX 3: return debug info so you can see what's actually going wrong
+  return res.status(404).json({
+    error: "Stream not available for this episode.",
+    debug: { candidates, errors },
+  });
 }
