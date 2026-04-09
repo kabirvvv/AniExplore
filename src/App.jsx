@@ -3,16 +3,23 @@ import {
   Search, BookOpen, Star, Info, Hash, Sparkles, Send, X,
   ChevronDown, ChevronUp, ImageOff, FilterX, Lightbulb,
   Zap, Layers, RefreshCw, AlertTriangle, WifiOff, Clock,
-  Plus, Loader2,
+  Plus, Loader2, Tv, Film, Play,
 } from "lucide-react";
 import MangaDetailPage from "./MangaDetailPage";
+import AnimeStreamPage from "./AnimeStreamPage";
 
-const API = { manga: "/api/anime", topManga: "/api/top-anime", grok: "/api/grok" };
+const API = {
+  manga:       "/api/anime",
+  topManga:    "/api/top-anime",
+  animeSearch: "/api/anime-search",
+  topAnime:    "/api/top-anime-stream",
+  grok:        "/api/grok",
+};
 
 const GENRE_MAP = {
   "Action": 1, "Adventure": 2, "Avant Garde": 5, "Award Winning": 46, "Boys Love": 28,
   "Comedy": 4, "Drama": 8, "Ecchi": 9, "Fantasy": 10,
-  "Girls Love": 26, "Gourmet": 47, "Hentai": 99, "Horror": 14,
+  "Girls Love": 26, "Gourmet": 47, "Horror": 14,
   "Isekai": 62, "Iyashikei": 63, "Mecha": 18, "Military": 38,
   "Music": 19, "Mystery": 7, "Mythology": 6, "Psychological": 40,
   "Romance": 22, "Sci-Fi": 24, "Seinen": 42, "Shoujo": 25,
@@ -166,6 +173,13 @@ export default function App() {
   const [isTyping, setIsTyping]             = useState(false);
   const [aiCooldown, setAiCooldown]         = useState(0);
   const [selectedManga, setSelectedManga]   = useState(null);
+  const [selectedAnime, setSelectedAnime]   = useState(null);
+  const [activeTab,     setActiveTab]       = useState("manga"); // "manga" | "anime"
+  const [animeList,     setAnimeList]       = useState([]);
+  const [animeLoading,  setAnimeLoading]    = useState(false);
+  const [animeError,    setAnimeError]      = useState(null);
+  const [animePagination, setAnimePagination] = useState({ currentPage: 1, hasNextPage: false, total: 0 });
+  const [animeSearch,   setAnimeSearch]     = useState("");
 
   const cooldownRef      = useRef(null);
   const chatEndRef       = useRef(null);
@@ -298,6 +312,40 @@ export default function App() {
     return () => clearTimeout(t);
   }, [searchQuery, selectedGenres]);
 
+  // ── FETCH ANIME ──────────────────────────────────────────────────────────
+  const fetchAnime = useCallback(async (page = 1, append = false) => {
+    if (append) setAnimeLoading(true);
+    else { setAnimeLoading(true); setAnimeError(null); }
+    try {
+      let endpoint, params;
+      if (animeSearch.trim()) {
+        endpoint = API.animeSearch;
+        params   = new URLSearchParams({ q: animeSearch.trim(), limit: "24", page: String(page) });
+      } else {
+        endpoint = API.topAnime;
+        params   = new URLSearchParams({ limit: "24", page: String(page) });
+      }
+      const res  = await fetch(`${endpoint}?${params}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      const data = json.data || [];
+      setAnimePagination(json.pagination || { currentPage: page, hasNextPage: false, total: data.length });
+      setAnimeList((prev) => append ? [...prev, ...data] : data);
+    } catch (e) {
+      setAnimeError(e.message || "Unknown error");
+      if (!append) setAnimeList([]);
+    } finally {
+      setAnimeLoading(false);
+    }
+  }, [animeSearch]);
+
+  // Refetch anime when search changes or tab switches to anime
+  useEffect(() => {
+    if (activeTab !== "anime") return;
+    const t = setTimeout(() => fetchAnime(1, false), 500);
+    return () => clearTimeout(t);
+  }, [animeSearch, activeTab, fetchAnime]);
+
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatHistory]);
 
   const toggleGenre = (genre) =>
@@ -349,7 +397,16 @@ export default function App() {
 
   const displayedGenres = showAllGenres ? ALL_GENRES : ALL_GENRES.slice(0, 12);
 
-  // ── DETAIL PAGE ────────────────────────────────────────────────────────────
+  // ── DETAIL PAGES ───────────────────────────────────────────────────────────
+  if (selectedAnime) {
+    return (
+      <AnimeStreamPage
+        anime={selectedAnime}
+        onBack={() => setSelectedAnime(null)}
+      />
+    );
+  }
+
   if (selectedManga) {
     return (
       <MangaDetailPage
@@ -371,17 +428,32 @@ export default function App() {
             {/* Logo */}
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
               <div className="bg-indigo-600 p-2 sm:p-2.5 rounded-xl sm:rounded-2xl shadow-lg shadow-indigo-600/30">
-                <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                {activeTab === "anime" ? <Tv className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
               </div>
               <div className="hidden sm:block">
                 <h1 className="text-xl sm:text-2xl font-black tracking-tighter bg-gradient-to-br from-white to-gray-500 bg-clip-text text-transparent">
-                  MANGAEXPLORE
+                  {activeTab === "anime" ? "ANIEXPLORE" : "MANGAEXPLORE"}
                 </h1>
                 <p className="text-[9px] font-bold text-indigo-400 tracking-[0.2em] uppercase leading-none">
                   Discovery Terminal
                 </p>
               </div>
-              <h1 className="sm:hidden text-lg font-black tracking-tighter text-white">MANGA</h1>
+            </div>
+
+            {/* Manga / Anime tab toggle */}
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-xl overflow-hidden flex-shrink-0">
+              {[{ id: "manga", icon: BookOpen, label: "Manga" }, { id: "anime", icon: Film, label: "Anime" }].map(({ id, icon: Icon, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 text-[11px] font-black uppercase tracking-widest transition ${
+                    activeTab === id ? "bg-indigo-600 text-white" : "text-gray-500 hover:text-white"
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              ))}
             </div>
 
             {/* Search with suggestions */}
@@ -390,15 +462,18 @@ export default function App() {
                 <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 group-focus-within:text-indigo-400 transition-colors z-10" />
                 <input
                   type="text"
-                  placeholder="Search manga..."
-                  value={searchQuery}
-                  onChange={(e) => { setSearchQuery(e.target.value); setShowSuggestions(false); }}
-                  onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                  placeholder={activeTab === "anime" ? "Search anime..." : "Search manga..."}
+                  value={activeTab === "anime" ? animeSearch : searchQuery}
+                  onChange={(e) => {
+                    if (activeTab === "anime") { setAnimeSearch(e.target.value); }
+                    else { setSearchQuery(e.target.value); setShowSuggestions(false); }
+                  }}
+                  onFocus={() => activeTab === "manga" && suggestions.length > 0 && setShowSuggestions(true)}
                   className="w-full pl-10 sm:pl-12 pr-8 sm:pr-10 py-2.5 sm:py-3.5 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all placeholder:text-gray-600 focus:bg-white/10"
                 />
-                {searchQuery && (
+                {(activeTab === "anime" ? animeSearch : searchQuery) && (
                   <button
-                    onClick={() => { setSearchQuery(""); setSuggestions([]); setShowSuggestions(false); }}
+                    onClick={() => { if (activeTab === "anime") { setAnimeSearch(""); } else { setSearchQuery(""); setSuggestions([]); setShowSuggestions(false); } }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-white/10 rounded-lg transition"
                   >
                     <X className="w-3.5 h-3.5 text-gray-500 hover:text-white" />
@@ -462,8 +537,8 @@ export default function App() {
 
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 sm:py-10">
 
-        {/* GENRE FILTERS */}
-        <section className="mb-8 sm:mb-12 bg-white/5 p-4 sm:p-8 rounded-2xl sm:rounded-[2.5rem] border border-white/5">
+        {/* GENRE FILTERS — manga mode only */}
+        {activeTab === "manga" && <section className="mb-8 sm:mb-12 bg-white/5 p-4 sm:p-8 rounded-2xl sm:rounded-[2.5rem] border border-white/5">
           <div className="flex items-center justify-between mb-4 sm:mb-6">
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="p-1.5 sm:p-2 bg-indigo-500/10 rounded-lg sm:rounded-xl">
@@ -500,20 +575,134 @@ export default function App() {
                 key={genre}
                 onClick={() => toggleGenre(genre)}
                 className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all duration-200 border active:scale-95 ${
-                  genre === "Hentai"
-                    ? selectedGenres.includes(genre)
-                      ? "bg-red-600 text-white shadow-lg shadow-red-600/30 border-red-500"
-                      : "bg-red-950/30 text-red-400 hover:bg-red-900/40 border-red-900/50"
-                    : selectedGenres.includes(genre)
+                  selectedGenres.includes(genre)
                     ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border-indigo-500"
                     : "bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-200 border-white/5"
                 }`}
               >
-                {genre === "Hentai" ? "🔞 Hentai" : genre}
+                {genre}
               </button>
             ))}
           </div>
-        </section>
+        </section>}
+
+        {/* ── ANIME MODE ──────────────────────────────────────────────────── */}
+        {activeTab === "anime" && (
+          <>
+            {/* Anime results header */}
+            <div className="flex items-center justify-between mb-5 sm:mb-8 px-1">
+              <div>
+                <div className="flex items-center gap-2 text-indigo-500 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.3em] mb-1">
+                  <Tv className="w-3.5 h-3.5" /> Streaming
+                </div>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tighter">
+                    {animeSearch ? `"${animeSearch}"` : "Top Anime"}
+                  </h2>
+                  {!animeLoading && !animeError && (
+                    <span className="bg-white/5 border border-white/10 px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      {animeList.length}{animePagination.hasNextPage ? "+" : ""}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {!animeLoading && (
+                <button onClick={() => fetchAnime(1, false)} className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-gray-400 hover:text-white transition uppercase tracking-widest">
+                  <RefreshCw className="w-3 h-3" /><span className="hidden sm:inline">Refresh</span>
+                </button>
+              )}
+            </div>
+            {/* Anime skeleton */}
+            {animeLoading && (
+              <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-6 animate-pulse">
+                {[...Array(12)].map((_, i) => <div key={i} className="aspect-[2/3] bg-white/5 rounded-xl sm:rounded-[2rem] border border-white/5" />)}
+              </div>
+            )}
+            {/* Anime error */}
+            {!animeLoading && animeError && (
+              <div className="text-center py-16 bg-red-950/10 rounded-2xl border border-dashed border-red-500/20">
+                <AlertTriangle className="w-10 h-10 text-red-500/60 mx-auto mb-4" />
+                <h3 className="text-xl font-black text-red-400/80 mb-2">Error</h3>
+                <pre className="text-[10px] text-gray-600 mb-6 font-mono">{animeError}</pre>
+                <button onClick={() => fetchAnime(1, false)} className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition">
+                  Retry
+                </button>
+              </div>
+            )}
+            {/* Anime grid */}
+            {!animeLoading && !animeError && animeList.length > 0 && (
+              <>
+                <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 sm:gap-5 md:gap-6">
+                  {animeList.map((anime) => (
+                    <div
+                      key={anime.anilist_id}
+                      onClick={() => setSelectedAnime(anime)}
+                      className="group cursor-pointer"
+                    >
+                      <div className="relative aspect-[2/3] rounded-xl sm:rounded-2xl overflow-hidden bg-gray-900 mb-2">
+                        {anime.images?.webp?.large_image_url ? (
+                          <img
+                            src={anime.images.webp.large_image_url}
+                            alt={anime.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Tv className="w-8 h-8 text-gray-700" />
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-3">
+                          <div className="flex items-center gap-1 bg-indigo-600 rounded-lg px-2 py-1">
+                            <Play className="w-3 h-3 text-white" fill="white" />
+                            <span className="text-[10px] font-black text-white uppercase tracking-wide">Watch</span>
+                          </div>
+                        </div>
+                        {anime.score && (
+                          <div className="absolute top-2 right-2 flex items-center gap-1 bg-black/60 backdrop-blur rounded-lg px-1.5 py-0.5">
+                            <Star className="w-2.5 h-2.5 text-yellow-400 fill-yellow-400" />
+                            <span className="text-[10px] font-black text-white">{anime.score}</span>
+                          </div>
+                        )}
+                        {anime.episodes && (
+                          <div className="absolute top-2 left-2 bg-black/60 backdrop-blur rounded-lg px-1.5 py-0.5">
+                            <span className="text-[10px] font-black text-white">{anime.episodes} eps</span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-xs font-bold text-gray-300 group-hover:text-white transition truncate leading-tight">
+                        {anime.title}
+                      </p>
+                      {anime.year && (
+                        <p className="text-[10px] font-bold text-gray-600 mt-0.5">{anime.year}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {animePagination.hasNextPage && (
+                  <div className="flex justify-center mt-10">
+                    <button
+                      onClick={() => fetchAnime(animePagination.currentPage + 1, true)}
+                      disabled={animeLoading}
+                      className="flex items-center gap-2 px-8 py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-2xl font-black text-xs uppercase tracking-widest transition disabled:opacity-50"
+                    >
+                      <Plus className="w-4 h-4" /> Load More
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+            {!animeLoading && !animeError && animeList.length === 0 && (
+              <div className="text-center py-28 bg-white/5 rounded-[3rem] border border-dashed border-white/10">
+                <Tv className="w-10 h-10 text-gray-700 mx-auto mb-4" />
+                <h3 className="text-2xl font-black text-gray-400 mb-4 tracking-tighter">No Results</h3>
+                <button onClick={() => setAnimeSearch("")} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition uppercase text-xs tracking-widest active:scale-95">Reset</button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── MANGA MODE ──────────────────────────────────────────────────── */}
+        {activeTab === "manga" && <>
 
         {/* RESULTS HEADER */}
         <div className="flex items-center justify-between mb-5 sm:mb-8 px-1">
