@@ -68,7 +68,7 @@ const MangaCard = ({ manga, isPriority, onClick }) => {
   const [imageError, setImageError] = useState(false);
   const coverUrl = useMemo(() => (
     manga.images?.webp?.large_image_url ||
-    manga.images?.jpg?.large_image_url ||
+    manga.images?.jpg?.large_image_url  ||
     manga.images?.webp?.image_url
   ), [manga]);
 
@@ -181,9 +181,9 @@ export default function App() {
   const [animePagination, setAnimePagination] = useState({ currentPage: 1, hasNextPage: false, total: 0 });
   const [animeSearch,   setAnimeSearch]     = useState("");
 
-  const cooldownRef      = useRef(null);
-  const chatEndRef       = useRef(null);
-  const searchRef        = useRef(null);
+  const cooldownRef          = useRef(null);
+  const chatEndRef           = useRef(null);
+  const searchRef            = useRef(null);
   const suggestTimerRef      = useRef(null);
   const suggestionClickedRef = useRef(false);
 
@@ -198,7 +198,10 @@ export default function App() {
     }, 1000);
   };
 
-  useEffect(() => () => { clearInterval(cooldownRef.current); clearTimeout(suggestTimerRef.current); }, []);
+  useEffect(() => () => {
+    clearInterval(cooldownRef.current);
+    clearTimeout(suggestTimerRef.current);
+  }, []);
 
   // ── SEARCH SUGGESTIONS DEBOUNCE ───────────────────────────────────────────
 
@@ -246,8 +249,8 @@ export default function App() {
     if (!append) setFetchError(null);
 
     const activeQuery = queryOverride !== null ? queryOverride : searchQuery;
-
     let resolvedErrorType = null;
+
     try {
       const params = new URLSearchParams({ limit: "24", page: String(page) });
       let endpoint;
@@ -283,8 +286,12 @@ export default function App() {
 
       if (selectedGenres.length > 1 && !append && data.length > 0) {
         const targetIds = selectedGenres.map((g) => GENRE_MAP[g]);
-        const perfect = data.filter((m) => targetIds.every((id) => (m.genres?.map((g) => g.mal_id) || []).includes(id)));
-        const rest    = data.filter((m) => !targetIds.every((id) => (m.genres?.map((g) => g.mal_id) || []).includes(id)));
+        const perfect = data.filter((m) =>
+          targetIds.every((id) => (m.genres?.map((g) => g.mal_id) || []).includes(id))
+        );
+        const rest = data.filter((m) =>
+          !targetIds.every((id) => (m.genres?.map((g) => g.mal_id) || []).includes(id))
+        );
         setPriorityIds(new Set(perfect.map((m) => m.mal_id)));
         if (perfect.length > 0) setFallbackMode("discovery");
         setMangaList([...perfect, ...rest]);
@@ -306,13 +313,14 @@ export default function App() {
   useEffect(() => {
     if (suggestionClickedRef.current) {
       suggestionClickedRef.current = false;
-      return; // already fetched directly in handleSuggestionClick
+      return;
     }
     const t = setTimeout(() => fetchManga(1, false), 700);
     return () => clearTimeout(t);
   }, [searchQuery, selectedGenres]);
 
   // ── FETCH ANIME ──────────────────────────────────────────────────────────
+
   const fetchAnime = useCallback(async (page = 1, append = false) => {
     if (append) setAnimeLoading(true);
     else { setAnimeLoading(true); setAnimeError(null); }
@@ -349,7 +357,9 @@ export default function App() {
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatHistory]);
 
   const toggleGenre = (genre) =>
-    setSelectedGenres((prev) => prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]);
+    setSelectedGenres((prev) =>
+      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
+    );
 
   const handleLoadMore = () => {
     if (!isLoadingMore && pagination.hasNextPage) {
@@ -358,11 +368,11 @@ export default function App() {
   };
 
   const handleSuggestionClick = (suggestion) => {
-    suggestionClickedRef.current = true; // skip suggestion re-fetch
+    suggestionClickedRef.current = true;
     setSuggestions([]);
     setShowSuggestions(false);
     setSearchQuery(suggestion.title);
-    fetchManga(1, false, suggestion.title); // call directly with override — bypasses stale closure + works even if query unchanged
+    fetchManga(1, false, suggestion.title);
   };
 
   const handleAiSearch = async (e) => {
@@ -383,13 +393,19 @@ export default function App() {
       if (!response.ok) {
         if (data.isRateLimit || response.status === 429) {
           startCooldown(30);
-          setChatHistory((prev) => [...prev, { role: "assistant", text: "AI is temporarily rate-limited. Please wait 30 seconds." }]);
+          setChatHistory((prev) => [
+            ...prev,
+            { role: "assistant", text: "AI is temporarily rate-limited. Please wait 30 seconds." },
+          ]);
         } else throw new Error(data.error || "AI error");
         return;
       }
       setChatHistory((prev) => [...prev, { role: "assistant", text: data.reply }]);
     } catch (err) {
-      setChatHistory((prev) => [...prev, { role: "assistant", text: `Connection error: ${err.message}` }]);
+      setChatHistory((prev) => [
+        ...prev,
+        { role: "assistant", text: `Connection error: ${err.message}` },
+      ]);
     } finally {
       setIsTyping(false);
     }
@@ -398,6 +414,7 @@ export default function App() {
   const displayedGenres = showAllGenres ? ALL_GENRES : ALL_GENRES.slice(0, 12);
 
   // ── DETAIL PAGES ───────────────────────────────────────────────────────────
+
   if (selectedAnime) {
     return (
       <AnimeStreamPage
@@ -418,6 +435,7 @@ export default function App() {
   }
 
   // ── MAIN PAGE ──────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans selection:bg-indigo-500 selection:text-white">
 
@@ -425,10 +443,13 @@ export default function App() {
       <header className="sticky top-0 z-30 bg-gray-950/90 backdrop-blur-2xl border-b border-white/5 shadow-xl">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center gap-3 sm:gap-6">
+
             {/* Logo */}
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
               <div className="bg-indigo-600 p-2 sm:p-2.5 rounded-xl sm:rounded-2xl shadow-lg shadow-indigo-600/30">
-                {activeTab === "anime" ? <Tv className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
+                {activeTab === "anime"
+                  ? <Tv className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                  : <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
               </div>
               <div className="hidden sm:block">
                 <h1 className="text-xl sm:text-2xl font-black tracking-tighter bg-gradient-to-br from-white to-gray-500 bg-clip-text text-transparent">
@@ -442,7 +463,10 @@ export default function App() {
 
             {/* Manga / Anime tab toggle */}
             <div className="flex items-center bg-white/5 border border-white/10 rounded-xl overflow-hidden flex-shrink-0">
-              {[{ id: "manga", icon: BookOpen, label: "Manga" }, { id: "anime", icon: Film, label: "Anime" }].map(({ id, icon: Icon, label }) => (
+              {[
+                { id: "manga", icon: BookOpen, label: "Manga" },
+                { id: "anime", icon: Film,     label: "Anime" },
+              ].map(({ id, icon: Icon, label }) => (
                 <button
                   key={id}
                   onClick={() => setActiveTab(id)}
@@ -465,15 +489,27 @@ export default function App() {
                   placeholder={activeTab === "anime" ? "Search anime..." : "Search manga..."}
                   value={activeTab === "anime" ? animeSearch : searchQuery}
                   onChange={(e) => {
-                    if (activeTab === "anime") { setAnimeSearch(e.target.value); }
-                    else { setSearchQuery(e.target.value); setShowSuggestions(false); }
+                    if (activeTab === "anime") {
+                      setAnimeSearch(e.target.value);
+                    } else {
+                      setSearchQuery(e.target.value);
+                      setShowSuggestions(false);
+                    }
                   }}
                   onFocus={() => activeTab === "manga" && suggestions.length > 0 && setShowSuggestions(true)}
                   className="w-full pl-10 sm:pl-12 pr-8 sm:pr-10 py-2.5 sm:py-3.5 bg-white/5 border border-white/10 rounded-xl sm:rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all placeholder:text-gray-600 focus:bg-white/10"
                 />
                 {(activeTab === "anime" ? animeSearch : searchQuery) && (
                   <button
-                    onClick={() => { if (activeTab === "anime") { setAnimeSearch(""); } else { setSearchQuery(""); setSuggestions([]); setShowSuggestions(false); } }}
+                    onClick={() => {
+                      if (activeTab === "anime") {
+                        setAnimeSearch("");
+                      } else {
+                        setSearchQuery("");
+                        setSuggestions([]);
+                        setShowSuggestions(false);
+                      }
+                    }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-white/10 rounded-lg transition"
                   >
                     <X className="w-3.5 h-3.5 text-gray-500 hover:text-white" />
@@ -538,58 +574,59 @@ export default function App() {
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 sm:py-10">
 
         {/* GENRE FILTERS — manga mode only */}
-        {activeTab === "manga" && <section className="mb-8 sm:mb-12 bg-white/5 p-4 sm:p-8 rounded-2xl sm:rounded-[2.5rem] border border-white/5">
-          <div className="flex items-center justify-between mb-4 sm:mb-6">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="p-1.5 sm:p-2 bg-indigo-500/10 rounded-lg sm:rounded-xl">
-                <Hash className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
+        {activeTab === "manga" && (
+          <section className="mb-8 sm:mb-12 bg-white/5 p-4 sm:p-8 rounded-2xl sm:rounded-[2.5rem] border border-white/5">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-indigo-500/10 rounded-lg sm:rounded-xl">
+                  <Hash className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
+                </div>
+                <h2 className="font-black text-white tracking-widest uppercase text-[10px] sm:text-xs">Genres</h2>
+                {selectedGenres.length > 0 && (
+                  <span className="bg-indigo-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full">
+                    {selectedGenres.length}
+                  </span>
+                )}
               </div>
-              <h2 className="font-black text-white tracking-widest uppercase text-[10px] sm:text-xs">Genres</h2>
-              {selectedGenres.length > 0 && (
-                <span className="bg-indigo-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full">
-                  {selectedGenres.length}
-                </span>
-              )}
-            </div>
-            <div className="flex gap-3 sm:gap-5">
-              {selectedGenres.length > 0 && (
+              <div className="flex gap-3 sm:gap-5">
+                {selectedGenres.length > 0 && (
+                  <button
+                    onClick={() => { setSelectedGenres([]); setFallbackMode(null); }}
+                    className="text-[10px] font-black text-red-400 hover:text-red-300 flex items-center gap-1 transition uppercase tracking-widest"
+                  >
+                    Clear <FilterX className="w-3 h-3" />
+                  </button>
+                )}
                 <button
-                  onClick={() => { setSelectedGenres([]); setFallbackMode(null); }}
-                  className="text-[10px] font-black text-red-400 hover:text-red-300 flex items-center gap-1 transition uppercase tracking-widest"
+                  onClick={() => setShowAllGenres(!showAllGenres)}
+                  className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition uppercase tracking-widest"
                 >
-                  Clear <FilterX className="w-3 h-3" />
+                  {showAllGenres ? "Less" : "More"}
+                  {showAllGenres ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </button>
-              )}
-              <button
-                onClick={() => setShowAllGenres(!showAllGenres)}
-                className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition uppercase tracking-widest"
-              >
-                {showAllGenres ? "Less" : "More"}
-                {showAllGenres ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              </button>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {displayedGenres.map((genre) => (
-              <button
-                key={genre}
-                onClick={() => toggleGenre(genre)}
-                className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all duration-200 border active:scale-95 ${
-                  selectedGenres.includes(genre)
-                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border-indigo-500"
-                    : "bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-200 border-white/5"
-                }`}
-              >
-                {genre}
-              </button>
-            ))}
-          </div>
-        </section>}
+            <div className="flex flex-wrap gap-2">
+              {displayedGenres.map((genre) => (
+                <button
+                  key={genre}
+                  onClick={() => toggleGenre(genre)}
+                  className={`px-3 sm:px-5 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-bold uppercase tracking-wider transition-all duration-200 border active:scale-95 ${
+                    selectedGenres.includes(genre)
+                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border-indigo-500"
+                      : "bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-200 border-white/5"
+                  }`}
+                >
+                  {genre}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* ── ANIME MODE ──────────────────────────────────────────────────── */}
         {activeTab === "anime" && (
           <>
-            {/* Anime results header */}
             <div className="flex items-center justify-between mb-5 sm:mb-8 px-1">
               <div>
                 <div className="flex items-center gap-2 text-indigo-500 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.3em] mb-1">
@@ -607,29 +644,37 @@ export default function App() {
                 </div>
               </div>
               {!animeLoading && (
-                <button onClick={() => fetchAnime(1, false)} className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-gray-400 hover:text-white transition uppercase tracking-widest">
+                <button
+                  onClick={() => fetchAnime(1, false)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-gray-400 hover:text-white transition uppercase tracking-widest"
+                >
                   <RefreshCw className="w-3 h-3" /><span className="hidden sm:inline">Refresh</span>
                 </button>
               )}
             </div>
-            {/* Anime skeleton */}
+
             {animeLoading && (
               <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-6 animate-pulse">
-                {[...Array(12)].map((_, i) => <div key={i} className="aspect-[2/3] bg-white/5 rounded-xl sm:rounded-[2rem] border border-white/5" />)}
+                {[...Array(12)].map((_, i) => (
+                  <div key={i} className="aspect-[2/3] bg-white/5 rounded-xl sm:rounded-[2rem] border border-white/5" />
+                ))}
               </div>
             )}
-            {/* Anime error */}
+
             {!animeLoading && animeError && (
               <div className="text-center py-16 bg-red-950/10 rounded-2xl border border-dashed border-red-500/20">
                 <AlertTriangle className="w-10 h-10 text-red-500/60 mx-auto mb-4" />
                 <h3 className="text-xl font-black text-red-400/80 mb-2">Error</h3>
                 <pre className="text-[10px] text-gray-600 mb-6 font-mono">{animeError}</pre>
-                <button onClick={() => fetchAnime(1, false)} className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition">
+                <button
+                  onClick={() => fetchAnime(1, false)}
+                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition"
+                >
                   Retry
                 </button>
               </div>
             )}
-            {/* Anime grid */}
+
             {!animeLoading && !animeError && animeList.length > 0 && (
               <>
                 <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 sm:gap-5 md:gap-6">
@@ -691,144 +736,162 @@ export default function App() {
                 )}
               </>
             )}
+
             {!animeLoading && !animeError && animeList.length === 0 && (
               <div className="text-center py-28 bg-white/5 rounded-[3rem] border border-dashed border-white/10">
                 <Tv className="w-10 h-10 text-gray-700 mx-auto mb-4" />
                 <h3 className="text-2xl font-black text-gray-400 mb-4 tracking-tighter">No Results</h3>
-                <button onClick={() => setAnimeSearch("")} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition uppercase text-xs tracking-widest active:scale-95">Reset</button>
+                <button
+                  onClick={() => setAnimeSearch("")}
+                  className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition uppercase text-xs tracking-widest active:scale-95"
+                >
+                  Reset
+                </button>
               </div>
             )}
           </>
         )}
 
         {/* ── MANGA MODE ──────────────────────────────────────────────────── */}
-        {activeTab === "manga" && <>
-
-        {/* RESULTS HEADER */}
-        <div className="flex items-center justify-between mb-5 sm:mb-8 px-1">
-          <div>
-            <div className="flex items-center gap-2 text-indigo-500 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.3em] mb-1">
-              <Layers className="w-3.5 h-3.5" /> Live Feed
-            </div>
-            <div className="flex items-center gap-3">
-              <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tighter">
-                {searchQuery ? `"${searchQuery}"` : selectedGenres.length > 0 ? "Filtered" : "Top Manga"}
-              </h2>
-              {!isLoading && !fetchError && (
-                <span className="bg-white/5 border border-white/10 px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                  {mangaList.length}{pagination.hasNextPage ? "+" : ""}
-                </span>
-              )}
-            </div>
-            {fallbackMode === "discovery" && (
-              <div className="flex items-center gap-2 mt-2 py-1.5 px-3 sm:px-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl w-fit">
-                <Lightbulb className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="text-[9px] sm:text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
-                  Prioritizing exact matches
-                </span>
-              </div>
-            )}
-          </div>
-          {!isLoading && (
-            <button
-              onClick={() => fetchManga(1, false)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-gray-400 hover:text-white transition uppercase tracking-widest"
-            >
-              <RefreshCw className="w-3 h-3" />
-              <span className="hidden sm:inline">Refresh</span>
-            </button>
-          )}
-        </div>
-
-        {/* SKELETON */}
-        {isLoading && (
-          <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-6 animate-pulse">
-            {[...Array(12)].map((_, i) => (
-              <div key={i} className="aspect-[2/3] bg-white/5 rounded-xl sm:rounded-[2rem] border border-white/5" />
-            ))}
-          </div>
-        )}
-
-        {/* ERROR */}
-        {!isLoading && fetchError && (
-          <div className="text-center py-16 sm:py-24 bg-red-950/10 rounded-2xl sm:rounded-[3rem] border border-dashed border-red-500/20 mx-2">
-            <div className="bg-gray-900 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
-              {errorType === "network"
-                ? <WifiOff className="w-8 h-8 sm:w-10 sm:h-10 text-red-500/60" />
-                : <AlertTriangle className="w-8 h-8 sm:w-10 sm:h-10 text-red-500/60" />
-              }
-            </div>
-            <h3 className="text-xl sm:text-2xl font-black text-red-400/80 mb-2 tracking-tighter">
-              {errorType === "ratelimit" ? "Rate Limited" : errorType === "network" ? "Network Error" : "Error"}
-            </h3>
-            <pre className="text-[10px] text-gray-600 mb-6 font-mono max-w-xs mx-auto whitespace-pre-wrap break-words px-4">
-              {fetchError}
-            </pre>
-            <div className="flex gap-3 justify-center">
-              <button onClick={() => fetchManga(1, false)} className="px-5 sm:px-8 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition uppercase text-xs tracking-widest active:scale-95 flex items-center gap-2">
-                <RefreshCw className="w-3.5 h-3.5" /> Retry
-              </button>
-              <button onClick={() => { setSearchQuery(""); setSelectedGenres([]); }} className="px-5 sm:px-8 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-2xl font-black transition uppercase text-xs tracking-widest">
-                Reset
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* MANGA GRID */}
-        {!isLoading && !fetchError && mangaList.length > 0 && (
+        {activeTab === "manga" && (
           <>
-            <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 sm:gap-5 md:gap-6">
-              {mangaList.map((manga) => (
-                <MangaCard
-                  key={manga.anilist_id || manga.mal_id}
-                  manga={manga}
-                  isPriority={priorityIds.has(manga.mal_id)}
-                  onClick={setSelectedManga}
-                />
-              ))}
-            </div>
-
-            {/* LOAD MORE */}
-            {pagination.hasNextPage && (
-              <div className="flex flex-col items-center gap-3 mt-10 sm:mt-14">
-                <p className="text-gray-600 text-[10px] font-bold uppercase tracking-widest">
-                  Showing {mangaList.length} of {pagination.total || "many"} titles
-                </p>
-                <button
-                  onClick={handleLoadMore}
-                  disabled={isLoadingMore}
-                  className="flex items-center gap-2.5 px-8 sm:px-12 py-3.5 sm:py-4 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-500/30 text-gray-400 hover:text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 group"
-                >
-                  {isLoadingMore ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Loading...</>
-                  ) : (
-                    <><Plus className="w-4 h-4 group-hover:text-indigo-400 transition" /> Load More</>
+            {/* RESULTS HEADER */}
+            <div className="flex items-center justify-between mb-5 sm:mb-8 px-1">
+              <div>
+                <div className="flex items-center gap-2 text-indigo-500 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.3em] mb-1">
+                  <Layers className="w-3.5 h-3.5" /> Live Feed
+                </div>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tighter">
+                    {searchQuery
+                      ? `"${searchQuery}"`
+                      : selectedGenres.length > 0
+                        ? "Filtered"
+                        : "Top Manga"}
+                  </h2>
+                  {!isLoading && !fetchError && (
+                    <span className="bg-white/5 border border-white/10 px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      {mangaList.length}{pagination.hasNextPage ? "+" : ""}
+                    </span>
                   )}
-                </button>
-
-                {/* Skeleton rows while loading more */}
-                {isLoadingMore && (
-                  <div className="w-full grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 sm:gap-5 md:gap-6 mt-4 animate-pulse">
-                    {[...Array(7)].map((_, i) => (
-                      <div key={i} className="aspect-[2/3] bg-white/5 rounded-xl sm:rounded-2xl border border-white/5" />
-                    ))}
+                </div>
+                {fallbackMode === "discovery" && (
+                  <div className="flex items-center gap-2 mt-2 py-1.5 px-3 sm:px-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl w-fit">
+                    <Lightbulb className="w-3.5 h-3.5 text-indigo-400" />
+                    <span className="text-[9px] sm:text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
+                      Prioritizing exact matches
+                    </span>
                   </div>
                 )}
               </div>
+              {!isLoading && (
+                <button
+                  onClick={() => fetchManga(1, false)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black text-gray-400 hover:text-white transition uppercase tracking-widest"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
+              )}
+            </div>
+
+            {/* SKELETON */}
+            {isLoading && (
+              <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-6 animate-pulse">
+                {[...Array(12)].map((_, i) => (
+                  <div key={i} className="aspect-[2/3] bg-white/5 rounded-xl sm:rounded-[2rem] border border-white/5" />
+                ))}
+              </div>
+            )}
+
+            {/* ERROR */}
+            {!isLoading && fetchError && (
+              <div className="text-center py-16 sm:py-24 bg-red-950/10 rounded-2xl sm:rounded-[3rem] border border-dashed border-red-500/20 mx-2">
+                <div className="bg-gray-900 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                  {errorType === "network"
+                    ? <WifiOff className="w-8 h-8 sm:w-10 sm:h-10 text-red-500/60" />
+                    : <AlertTriangle className="w-8 h-8 sm:w-10 sm:h-10 text-red-500/60" />}
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-red-400/80 mb-2 tracking-tighter">
+                  {errorType === "ratelimit" ? "Rate Limited" : errorType === "network" ? "Network Error" : "Error"}
+                </h3>
+                <pre className="text-[10px] text-gray-600 mb-6 font-mono max-w-xs mx-auto whitespace-pre-wrap break-words px-4">
+                  {fetchError}
+                </pre>
+                <div className="flex gap-3 justify-center">
+                  <button
+                    onClick={() => fetchManga(1, false)}
+                    className="px-5 sm:px-8 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition uppercase text-xs tracking-widest active:scale-95 flex items-center gap-2"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Retry
+                  </button>
+                  <button
+                    onClick={() => { setSearchQuery(""); setSelectedGenres([]); }}
+                    className="px-5 sm:px-8 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-2xl font-black transition uppercase text-xs tracking-widest"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* MANGA GRID */}
+            {!isLoading && !fetchError && mangaList.length > 0 && (
+              <>
+                <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 sm:gap-5 md:gap-6">
+                  {mangaList.map((manga) => (
+                    <MangaCard
+                      key={manga.anilist_id || manga.mal_id}
+                      manga={manga}
+                      isPriority={priorityIds.has(manga.mal_id)}
+                      onClick={setSelectedManga}
+                    />
+                  ))}
+                </div>
+
+                {/* LOAD MORE */}
+                {pagination.hasNextPage && (
+                  <div className="flex flex-col items-center gap-3 mt-10 sm:mt-14">
+                    <p className="text-gray-600 text-[10px] font-bold uppercase tracking-widest">
+                      Showing {mangaList.length} of {pagination.total || "many"} titles
+                    </p>
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={isLoadingMore}
+                      className="flex items-center gap-2.5 px-8 sm:px-12 py-3.5 sm:py-4 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-500/30 text-gray-400 hover:text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 group"
+                    >
+                      {isLoadingMore ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Loading...</>
+                      ) : (
+                        <><Plus className="w-4 h-4 group-hover:text-indigo-400 transition" /> Load More</>
+                      )}
+                    </button>
+                    {isLoadingMore && (
+                      <div className="w-full grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 sm:gap-5 md:gap-6 mt-4 animate-pulse">
+                        {[...Array(7)].map((_, i) => (
+                          <div key={i} className="aspect-[2/3] bg-white/5 rounded-xl sm:rounded-2xl border border-white/5" />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* EMPTY */}
+            {!isLoading && !fetchError && mangaList.length === 0 && (
+              <div className="text-center py-28 bg-white/5 rounded-[3rem] border border-dashed border-white/10">
+                <Info className="w-10 h-10 text-gray-700 mx-auto mb-4" />
+                <h3 className="text-2xl font-black text-gray-400 mb-4 tracking-tighter">No Results</h3>
+                <button
+                  onClick={() => { setSearchQuery(""); setSelectedGenres([]); }}
+                  className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition uppercase text-xs tracking-widest active:scale-95"
+                >
+                  Reset
+                </button>
+              </div>
             )}
           </>
-        )}
-
-        {/* EMPTY */}
-        {!isLoading && !fetchError && mangaList.length === 0 && (
-          <div className="text-center py-28 bg-white/5 rounded-[3rem] border border-dashed border-white/10">
-            <Info className="w-10 h-10 text-gray-700 mx-auto mb-4" />
-            <h3 className="text-2xl font-black text-gray-400 mb-4 tracking-tighter">No Results</h3>
-            <button onClick={() => { setSearchQuery(""); setSelectedGenres([]); }} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black transition uppercase text-xs tracking-widest active:scale-95">
-              Reset
-            </button>
-          </div>
         )}
       </main>
 
@@ -884,7 +947,9 @@ export default function App() {
               {aiCooldown > 0 && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
                   <Clock className="w-3.5 h-3.5 text-yellow-400 animate-pulse" />
-                  <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">Cooling Down — {aiCooldown}s</span>
+                  <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">
+                    Cooling Down — {aiCooldown}s
+                  </span>
                 </div>
               )}
               <div className="relative">
