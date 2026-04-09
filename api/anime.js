@@ -19,16 +19,18 @@ export default async function handler(req, res) {
     "39": "Police", "40": "Psychological", "41": "Suspense", "42": "Seinen",
     "46": "Award Winning", "47": "Gourmet", "48": "Work Life",
     "62": "Isekai", "63": "Iyashikei",
-    "99": "Hentai", // special — triggers isAdult filter
+    "99": "Hentai",
   };
 
   const genreList = genres
     ? genres.split(",").map((g) => GENRE_MAP[g]).filter(Boolean)
     : [];
 
-  // Separate hentai from regular genres — AniList uses isAdult flag for it
   const isHentai = genreList.includes("Hentai");
   const genreFilter = genreList.filter((g) => g !== "Hentai");
+
+  // Only inject isAdult: true for hentai — never pass null/false as it breaks AniList filtering
+  const isAdultArg = isHentai ? ", isAdult: true" : "";
 
   const mediaFields = `
     id
@@ -48,10 +50,10 @@ export default async function handler(req, res) {
 
   if (q) {
     query = `
-      query ($search: String, $perPage: Int, $page: Int, $isAdult: Boolean) {
+      query ($search: String, $perPage: Int, $page: Int) {
         Page(page: $page, perPage: $perPage) {
           pageInfo { total currentPage hasNextPage }
-          media(search: $search, type: MANGA, sort: [SCORE_DESC], isAdult: $isAdult) {
+          media(search: $search, type: MANGA, sort: [SCORE_DESC]${isAdultArg}) {
             ${mediaFields}
           }
         }
@@ -61,18 +63,16 @@ export default async function handler(req, res) {
       search: q.trim(),
       perPage: parseInt(limit),
       page: parseInt(page),
-      isAdult: isHentai ? true : null,
     };
   } else if (genreFilter.length > 0 || isHentai) {
     query = `
-      query ($genres: [String], $perPage: Int, $page: Int, $isAdult: Boolean) {
+      query ($genres: [String], $perPage: Int, $page: Int) {
         Page(page: $page, perPage: $perPage) {
           pageInfo { total currentPage hasNextPage }
           media(
             ${genreFilter.length > 0 ? "genre_in: $genres," : ""}
             type: MANGA,
-            sort: [SCORE_DESC],
-            isAdult: $isAdult
+            sort: [SCORE_DESC]${isAdultArg}
           ) {
             ${mediaFields}
           }
@@ -83,7 +83,6 @@ export default async function handler(req, res) {
       genres: genreFilter.length > 0 ? genreFilter : undefined,
       perPage: parseInt(limit),
       page: parseInt(page),
-      isAdult: isHentai ? true : false,
     };
   } else {
     return res.status(400).json({ error: "q or genres param required" });
