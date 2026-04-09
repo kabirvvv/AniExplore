@@ -170,9 +170,7 @@ export default function App() {
   const cooldownRef      = useRef(null);
   const chatEndRef       = useRef(null);
   const searchRef        = useRef(null);
-  const suggestTimerRef       = useRef(null);
-  const suggestionClickedRef  = useRef(false);
-  const triggerImmediateRef = useRef(false);
+  const suggestTimerRef      = useRef(null);
   const suggestionClickedRef = useRef(false);
 
   const startCooldown = (seconds = 30) => {
