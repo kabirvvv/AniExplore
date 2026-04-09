@@ -5,8 +5,8 @@ import {
   Calendar, Layers, RefreshCw,
 } from "lucide-react";
 
-const STREAM_API = "/api/anime-stream";
-const HLS_CDN    = "https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.7/hls.min.js";
+const ANIPUB  = "https://api.anipub.xyz";
+const HLS_CDN = "https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.7/hls.min.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmtTime(s) {
@@ -24,28 +24,45 @@ function loadHlsScript(cb) {
   document.head.appendChild(s);
 }
 
+function toSlug(t = "") {
+  return t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function normalizeSources(json, type) {
+  if (json.sub || json.dub) {
+    const url = type === "dub" ? (json.dub || json.sub) : (json.sub || json.dub);
+    return [{ url, quality: "auto" }];
+  }
+  if (json.sources?.length) {
+    return json.sources.map((s) => ({ url: s.url, quality: s.quality || "auto" }));
+  }
+  const url = json.url || json.stream || json.link || json.streamUrl;
+  if (url) return [{ url, quality: "auto" }];
+  return [];
+}
+
 // ── AnimeStreamPage ────────────────────────────────────────────────────────────
 export default function AnimeStreamPage({ anime, onBack }) {
-  const totalEps   = anime.episodes || 12;
-  const episodes   = Array.from({ length: totalEps }, (_, i) => i + 1);
+  const totalEps = anime.episodes || 12;
+  const episodes = Array.from({ length: totalEps }, (_, i) => i + 1);
 
   // State
-  const [currentEp,    setCurrentEp]    = useState(1);
-  const [audioType,    setAudioType]    = useState("sub");
-  const [sources,      setSources]      = useState([]);
+  const [currentEp,     setCurrentEp]     = useState(1);
+  const [audioType,     setAudioType]     = useState("sub");
+  const [sources,       setSources]       = useState([]);
   const [streamLoading, setStreamLoading] = useState(false);
-  const [streamError,  setStreamError]  = useState(null);
+  const [streamError,   setStreamError]   = useState(null);
 
   // Player state
-  const [playing,      setPlaying]      = useState(false);
-  const [currentTime,  setCurrentTime]  = useState(0);
-  const [duration,     setDuration]     = useState(0);
-  const [volume,       setVolume]       = useState(1);
-  const [muted,        setMuted]        = useState(false);
-  const [buffering,    setBuffering]    = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [qualityIdx,   setQualityIdx]   = useState(0);
+  const [playing,       setPlaying]       = useState(false);
+  const [currentTime,   setCurrentTime]   = useState(0);
+  const [duration,      setDuration]      = useState(0);
+  const [volume,        setVolume]        = useState(1);
+  const [muted,         setMuted]         = useState(false);
+  const [buffering,     setBuffering]     = useState(false);
+  const [showControls,  setShowControls]  = useState(true);
+  const [isFullscreen,  setIsFullscreen]  = useState(false);
+  const [qualityIdx,    setQualityIdx]    = useState(0);
 
   const videoRef     = useRef(null);
   const hlsRef       = useRef(null);
@@ -53,31 +70,74 @@ export default function AnimeStreamPage({ anime, onBack }) {
   const controlTimer = useRef(null);
   const epListRef    = useRef(null);
 
-  // ── Fetch stream ─────────────────────────────────────────────────────────────
+  // ── Fetch stream — CLIENT SIDE, calls AniPub directly ────────────────────────
   const fetchStream = useCallback(async () => {
     setStreamLoading(true);
     setStreamError(null);
     setSources([]);
-    try {
-      const p = new URLSearchParams({
-        malId:       anime.mal_id      || "",
-        anilistId:   anime.anilist_id  || "",
-        title:       anime.title_english || anime.title || "",
-        titleRomaji: anime.title_romaji  || "",
-        ep:          currentEp,
-        type:        audioType,
-      });
-      const res  = await fetch(`${STREAM_API}?${p}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Stream not found");
-      if (!data.sources?.length) throw new Error("No playable sources returned");
-      setSources(data.sources);
-      setQualityIdx(0);
-    } catch (e) {
-      setStreamError(e.message);
-    } finally {
-      setStreamLoading(false);
+
+    const titleRaw    = anime.title_english || anime.title || "";
+    const titleRomaji = anime.title_romaji  || "";
+
+    const base = toSlug(titleRaw);
+    const stripped = base
+      .replace(/-\d+(st|nd|rd|th)-season$/, "")
+      .replace(/-season-\d+$/, "")
+      .replace(/-part-\d+$/, "")
+      .replace(/-\d{4}$/, "");
+
+    const candidates = [...new Set([
+      base,
+      toSlug(titleRomaji),
+      stripped,
+    ].filter(Boolean))];
+
+    const errors = [];
+
+    for (const candidate of candidates) {
+      try {
+        const url = `${ANIPUB}/anime/api/stream/${candidate}/${currentEp}?type=${audioType}`;
+        console.log("[AnimeStream] Trying:", url);
+
+        const r = await fetch(url, {
+          headers: { Accept: "application/json" },
+        });
+
+        if (!r.ok) {
+          errors.push({ candidate, status: r.status });
+          continue;
+        }
+
+        let json;
+        try { json = await r.json(); } catch (_) {
+          errors.push({ candidate, reason: "invalid JSON" });
+          continue;
+        }
+
+        if (!json || json.error) {
+          errors.push({ candidate, apiError: json?.error || "null response" });
+          continue;
+        }
+
+        const srcs = normalizeSources(json, audioType);
+        if (!srcs.length) {
+          errors.push({ candidate, reason: "no sources", keys: Object.keys(json) });
+          continue;
+        }
+
+        console.log("[AnimeStream] Success:", candidate, srcs);
+        setSources(srcs);
+        setQualityIdx(0);
+        setStreamLoading(false);
+        return;
+      } catch (e) {
+        errors.push({ candidate, exception: e.message });
+      }
     }
+
+    console.error("[AnimeStream] All candidates failed:", errors);
+    setStreamError("Stream not available. Check the browser console for details.");
+    setStreamLoading(false);
   }, [currentEp, audioType, anime]);
 
   useEffect(() => { fetchStream(); }, [fetchStream]);
@@ -112,7 +172,9 @@ export default function AnimeStreamPage({ anime, onBack }) {
     };
 
     loadHlsScript(attach);
-    return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
+    return () => {
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    };
   }, [sources, qualityIdx]);
 
   // ── Scroll active episode into view ──────────────────────────────────────────
@@ -123,13 +185,13 @@ export default function AnimeStreamPage({ anime, onBack }) {
   }, [currentEp]);
 
   // ── Video event handlers ──────────────────────────────────────────────────────
-  const onPlay        = () => setPlaying(true);
-  const onPause       = () => setPlaying(false);
-  const onTimeUpdate  = () => setCurrentTime(videoRef.current?.currentTime || 0);
+  const onPlay           = () => setPlaying(true);
+  const onPause          = () => setPlaying(false);
+  const onTimeUpdate     = () => setCurrentTime(videoRef.current?.currentTime || 0);
   const onDurationChange = () => setDuration(videoRef.current?.duration || 0);
-  const onWaiting     = () => setBuffering(true);
-  const onCanPlay     = () => setBuffering(false);
-  const onFullChange  = () => setIsFullscreen(!!document.fullscreenElement);
+  const onWaiting        = () => setBuffering(true);
+  const onCanPlay        = () => setBuffering(false);
+  const onFullChange     = () => setIsFullscreen(!!document.fullscreenElement);
 
   useEffect(() => {
     document.addEventListener("fullscreenchange", onFullChange);
@@ -235,7 +297,6 @@ export default function AnimeStreamPage({ anime, onBack }) {
             onMouseLeave={() => playing && setShowControls(false)}
             className="relative bg-black rounded-2xl overflow-hidden aspect-video group"
           >
-            {/* Video element */}
             <video
               ref={videoRef}
               className="w-full h-full object-contain"
@@ -278,7 +339,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
               </div>
             )}
 
-            {/* Big play/pause button (center) */}
+            {/* Big play button */}
             {!streamLoading && !streamError && !buffering && (
               <div
                 onClick={togglePlay}
@@ -294,7 +355,6 @@ export default function AnimeStreamPage({ anime, onBack }) {
 
             {/* CONTROLS BAR */}
             <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-4 pt-10 transition-opacity duration-300 ${showControls || !playing ? "opacity-100" : "opacity-0"}`}>
-
               {/* Progress bar */}
               <div
                 className="relative h-1.5 bg-white/20 rounded-full mb-3 cursor-pointer group/seek"
@@ -311,14 +371,10 @@ export default function AnimeStreamPage({ anime, onBack }) {
               </div>
 
               <div className="flex items-center gap-3">
-                {/* Play/Pause */}
                 <button onClick={togglePlay} className="text-white hover:text-indigo-300 transition">
-                  {playing
-                    ? <Pause className="w-5 h-5" />
-                    : <Play  className="w-5 h-5" />}
+                  {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                 </button>
 
-                {/* Ep prev/next */}
                 <button onClick={() => goEp(currentEp - 1)} disabled={currentEp <= 1}
                   className="text-gray-400 hover:text-white disabled:opacity-30 transition">
                   <ChevronLeft className="w-4 h-4" />
@@ -328,14 +384,12 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   <ChevronRight className="w-4 h-4" />
                 </button>
 
-                {/* Time */}
                 <span className="text-xs font-mono text-gray-300 tabular-nums">
                   {fmtTime(currentTime)} / {fmtTime(duration)}
                 </span>
 
                 <div className="flex-1" />
 
-                {/* Quality selector */}
                 {sources.length > 1 && (
                   <select
                     value={qualityIdx}
@@ -350,12 +404,9 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   </select>
                 )}
 
-                {/* Volume */}
                 <div className="flex items-center gap-1.5">
                   <button onClick={toggleMute} className="text-gray-300 hover:text-white transition">
-                    {muted || volume === 0
-                      ? <VolumeX className="w-4 h-4" />
-                      : <Volume2 className="w-4 h-4" />}
+                    {muted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                   </button>
                   <input
                     type="range" min="0" max="1" step="0.05"
@@ -365,11 +416,8 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   />
                 </div>
 
-                {/* Fullscreen */}
                 <button onClick={toggleFullscreen} className="text-gray-300 hover:text-white transition">
-                  {isFullscreen
-                    ? <Minimize className="w-4 h-4" />
-                    : <Maximize className="w-4 h-4" />}
+                  {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
                 </button>
               </div>
             </div>
