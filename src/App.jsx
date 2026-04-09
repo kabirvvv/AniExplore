@@ -29,7 +29,7 @@ async function fetchSuggestions(query) {
   if (!query || query.length < 2) return [];
   const gqlQuery = `
     query ($search: String) {
-      Page(perPage: 6) {
+      Page(perPage: 10) {
         media(search: $search, type: MANGA, sort: [POPULARITY_DESC]) {
           id
           title { romaji english }
@@ -170,7 +170,11 @@ export default function App() {
   const cooldownRef      = useRef(null);
   const chatEndRef       = useRef(null);
   const searchRef        = useRef(null);
-  const suggestTimerRef  = useRef(null);
+  const suggestTimerRef       = useRef(null);
+  const triggerImmediateRef   = useRef(false);
+  const suggestionClickedRef  = useRef(false);
+  const triggerImmediateRef = useRef(false);
+  const suggestionClickedRef = useRef(false);
 
   const startCooldown = (seconds = 30) => {
     setAiCooldown(seconds);
@@ -188,6 +192,10 @@ export default function App() {
   // ── SEARCH SUGGESTIONS DEBOUNCE ───────────────────────────────────────────
 
   useEffect(() => {
+    if (suggestionClickedRef.current) {
+      suggestionClickedRef.current = false;
+      return;
+    }
     clearTimeout(suggestTimerRef.current);
     if (!searchQuery || searchQuery.length < 2) {
       setSuggestions([]);
@@ -283,7 +291,9 @@ export default function App() {
 
   // Reset + refetch when query/genres change
   useEffect(() => {
-    const t = setTimeout(() => fetchManga(1, false), 700);
+    const delay = triggerImmediateRef.current ? 0 : 700;
+    triggerImmediateRef.current = false;
+    const t = setTimeout(() => fetchManga(1, false), delay);
     return () => clearTimeout(t);
   }, [searchQuery, selectedGenres]);
 
@@ -299,7 +309,10 @@ export default function App() {
   };
 
   const handleSuggestionClick = (suggestion) => {
+    suggestionClickedRef.current = true;
+    triggerImmediateRef.current = true;
     setSearchQuery(suggestion.title);
+    setSuggestions([]);
     setShowSuggestions(false);
   };
 
