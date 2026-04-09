@@ -7,7 +7,7 @@ export default async function handler(req, res) {
 
   const { limit = 24, page = 1 } = req.query;
 
-  const gql = `
+  const query = `
     query ($perPage: Int, $page: Int) {
       Page(page: $page, perPage: $perPage) {
         pageInfo { total currentPage hasNextPage }
@@ -15,47 +15,64 @@ export default async function handler(req, res) {
           type: ANIME,
           sort: [SCORE_DESC],
           status_not: NOT_YET_RELEASED,
-          format_in: [TV, MOVIE, OVA, ONA],
+          format_in: [TV, TV_SHORT, MOVIE, OVA, ONA, SPECIAL],
           isAdult: false
         ) {
-          id idMal
+          id
+          idMal
           title { romaji english native }
           coverImage { extraLarge large }
           averageScore
           genres
           episodes
           status
-          description(asHtml: false)
           format
           seasonYear
+          description(asHtml: false)
+          studios(isMain: true) {
+            nodes { name }
+          }
         }
       }
     }
   `;
 
   try {
-    const r = await fetch("https://graphql.anilist.co", {
+    const response = await fetch("https://graphql.anilist.co", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query: gql, variables: { perPage: parseInt(limit), page: parseInt(page) } }),
+      body: JSON.stringify({
+        query,
+        variables: { perPage: parseInt(limit), page: parseInt(page) },
+      }),
     });
-    const json = await r.json();
-    if (!r.ok || json.errors) throw new Error(json.errors?.[0]?.message || `AniList ${r.status}`);
 
-    const pageInfo = json.data.Page.pageInfo;
-    const media    = json.data.Page.media || [];
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `AniList error: ${response.status}` });
+    }
+
+    const json = await response.json();
+    if (json.errors) {
+      return res.status(400).json({ error: json.errors[0]?.message || "AniList query error" });
+    }
+
+    const pageInfo = json.data?.Page?.pageInfo || {};
+    const media    = json.data?.Page?.media    || [];
 
     const data = media.map((m) => ({
-      anilist_id: m.id,
-      mal_id:     m.idMal,
-      title:      m.title.english || m.title.romaji,
-      title_english: m.title.english,
-      title_romaji:  m.title.romaji,
+      mal_id:         m.idMal,
+      anilist_id:     m.id,
+      title:          m.title.english || m.title.romaji,
+      title_english:  m.title.english,
+      title_romaji:   m.title.romaji,
       title_japanese: m.title.native,
-      anipub_slug: toSlug(m.title.english || m.title.romaji),
+      anipub_slug:    toSlug(m.title.english || m.title.romaji),
       images: {
-        webp: { large_image_url: m.coverImage.extraLarge || m.coverImage.large, image_url: m.coverImage.large },
-        jpg:  { large_image_url: m.coverImage.extraLarge || m.coverImage.large },
+        webp: {
+          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
+          image_url:       m.coverImage.large,
+        },
+        jpg: { large_image_url: m.coverImage.extraLarge || m.coverImage.large },
       },
       score:    m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
       genres:   (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
@@ -63,16 +80,17 @@ export default async function handler(req, res) {
       status:   m.status,
       format:   m.format,
       year:     m.seasonYear,
+      studio:   m.studios?.nodes?.[0]?.name || null,
       synopsis: m.description,
     }));
 
     return res.status(200).json({
       data,
       pagination: {
-        total: pageInfo.total || data.length,
+        total:       pageInfo.total       || data.length,
         currentPage: pageInfo.currentPage || parseInt(page),
         hasNextPage: pageInfo.hasNextPage ?? false,
-        perPage: parseInt(limit),
+        perPage:     parseInt(limit),
       },
     });
   } catch (err) {
