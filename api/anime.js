@@ -19,18 +19,13 @@ export default async function handler(req, res) {
     "39": "Police", "40": "Psychological", "41": "Suspense", "42": "Seinen",
     "46": "Award Winning", "47": "Gourmet", "48": "Work Life",
     "62": "Isekai", "63": "Iyashikei",
-    "99": "Hentai",
   };
 
   const genreList = genres
     ? genres.split(",").map((g) => GENRE_MAP[g]).filter(Boolean)
     : [];
 
-  const isHentai = genreList.includes("Hentai");
-  const genreFilter = genreList.filter((g) => g !== "Hentai");
-
-  // Only inject isAdult: true for hentai — never pass null/false as it breaks AniList filtering
-  const isAdultArg = isHentai ? ", isAdult: true" : "";
+  const genreFilter = genreList;
 
   const mediaFields = `
     id
@@ -53,7 +48,7 @@ export default async function handler(req, res) {
       query ($search: String, $perPage: Int, $page: Int) {
         Page(page: $page, perPage: $perPage) {
           pageInfo { total currentPage hasNextPage }
-          media(search: $search, type: MANGA, sort: [SCORE_DESC]${isAdultArg}) {
+          media(search: $search, type: MANGA, sort: [SCORE_DESC], isAdult: false) {
             ${mediaFields}
           }
         }
@@ -64,7 +59,7 @@ export default async function handler(req, res) {
       perPage: parseInt(limit),
       page: parseInt(page),
     };
-  } else if (genreFilter.length > 0 || isHentai) {
+  } else if (genreFilter.length > 0) {
     query = `
       query ($genres: [String], $perPage: Int, $page: Int) {
         Page(page: $page, perPage: $perPage) {
@@ -72,7 +67,8 @@ export default async function handler(req, res) {
           media(
             ${genreFilter.length > 0 ? "genre_in: $genres," : ""}
             type: MANGA,
-            sort: [SCORE_DESC]${isAdultArg}
+            isAdult: false,
+            sort: [SCORE_DESC]
           ) {
             ${mediaFields}
           }
