@@ -25,8 +25,12 @@ export default function AnimeStreamPage({ anime, onBack }) {
   const [allEps,    setAllEps]    = useState([]); // [{ ep: 1, src: "https://..." }, ...]
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
+  const [retryKey,  setRetryKey]  = useState(0); // bump to re-run load()
 
   const epListRef = useRef(null);
+
+  // Bug fix: depend on stable ID + retryKey, not the anime object reference
+  const stableId = anime.anilist_id ?? anime.mal_id ?? anime.title;
 
   useEffect(() => {
     let cancelled = false;
@@ -36,34 +40,46 @@ export default function AnimeStreamPage({ anime, onBack }) {
       setError(null);
       setAllEps([]);
 
-      const title = anime.title_english || anime.title || "";
+      // Build title candidates: try english → romaji → generic title
+      const titleCandidates = [
+        anime.title_english,
+        anime.title_romaji,
+        anime.title,
+      ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i); // dedupe
 
       try {
         // ── Step 1: find the AniPub ID ──────────────────────────────────────
         // GET /api/find/:name → { exist: true, id: 10, ep: 1155 }
-        const findRes = await apiFetch(
-          `${ANIPUB}/api/find/${encodeURIComponent(title)}`
-        );
-        if (!findRes.ok) throw new Error(`Find failed (${findRes.status})`);
+        // Try each title variant — english often differs from AniPub's naming,
+        // romaji is frequently a better match.
+        let anipubId = null;
 
-        const findData = await findRes.json();
-
-        let anipubId = findData.exist ? findData.id : null;
+        for (const t of titleCandidates) {
+          const findRes = await apiFetch(
+            `${ANIPUB}/api/find/${encodeURIComponent(t)}`
+          );
+          if (!findRes.ok) continue;
+          const findData = await findRes.json();
+          if (findData.exist && findData.id) { anipubId = findData.id; break; }
+        }
 
         // Fallback: /api/search/:name → [{ Name, Id, Image, finder }]
         if (!anipubId) {
-          console.warn(`[AniPub] No exact match for "${title}", trying search…`);
-          const searchRes = await apiFetch(
-            `${ANIPUB}/api/search/${encodeURIComponent(title)}`
-          );
-          if (!searchRes.ok) throw new Error(`Search failed (${searchRes.status})`);
-          const searchData = await searchRes.json();
-          if (!Array.isArray(searchData) || !searchData.length)
-            throw new Error(`"${title}" not found on AniPub.`);
-          anipubId = searchData[0].Id;
+          for (const t of titleCandidates) {
+            console.warn(`[AniPub] find() missed, trying search for "${t}"…`);
+            const searchRes = await apiFetch(
+              `${ANIPUB}/api/search/${encodeURIComponent(t)}`
+            );
+            if (!searchRes.ok) continue;
+            const searchData = await searchRes.json();
+            if (Array.isArray(searchData) && searchData.length) {
+              anipubId = searchData[0].Id;
+              break;
+            }
+          }
         }
 
-        if (!anipubId) throw new Error("Could not resolve AniPub ID.");
+        if (!anipubId) throw new Error(`"${titleCandidates[0]}" not found on AniPub.`);
 
         // ── Step 2: get streaming links ─────────────────────────────────────
         // GET /v1/api/details/:id → { local: { link: "src=https://...", ep: [{link}, ...] } }
@@ -81,9 +97,9 @@ export default function AnimeStreamPage({ anime, onBack }) {
           { ep: 1, src: extractSrc(local.link) },
           ...(local.ep || []).map((e, i) => ({
             ep: i + 2,
-            src: extractSrc(e.link),
+            src: extractSrc(e?.link ?? ""),
           })),
-        ];
+        ].filter((e) => e.src); // drop episodes with no src (broken links)
 
         if (!cancelled) {
           setAllEps(eps);
@@ -100,7 +116,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
 
     load();
     return () => { cancelled = true; };
-  }, [anime]);
+  }, [stableId, retryKey]); // stable deps — avoids re-fetch on parent re-render
 
   // Scroll active episode into view
   useEffect(() => {
@@ -163,7 +179,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   <p className="text-sm font-bold text-red-400 mb-1">Stream Error</p>
                   <p className="text-xs text-gray-500 mb-4 max-w-xs">{error}</p>
                   <button
-                    onClick={() => window.location.reload()}
+                    onClick={() => { setError(null); setRetryKey((k) => k + 1); }}
                     className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-black uppercase tracking-widest transition mx-auto"
                   >
                     <RefreshCw className="w-3.5 h-3.5" /> Retry
@@ -263,36 +279,58 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
                 </div>
               )}
-              {!loading && allEps.map(({ ep }) => (
-                <button
-                  key={ep}
-                  data-active={ep === currentEp}
-                  onClick={() => setCurrentEp(ep)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-left transition border-b border-white/5 last:border-0 ${
-                    ep === currentEp
-                      ? "bg-indigo-600/20 border-l-2 border-l-indigo-500"
-                      : "hover:bg-white/5"
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black flex-shrink-0 ${
-                    ep === currentEp
-                      ? "bg-indigo-600 text-white"
-                      : "bg-white/10 text-gray-400"
-                  }`}>
-                    {ep}
-                  </div>
-                  <div>
-                    <p className={`text-xs font-bold ${ep === currentEp ? "text-white" : "text-gray-300"}`}>
-                      Episode {ep}
-                    </p>
-                    {ep === currentEp && (
-                      <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
-                        Now Playing
-                      </p>
+              {!loading && (() => {
+                // Virtualize: only render episodes near the active one to avoid
+                // freezing on long-running anime (One Piece = 1155 eps, etc.)
+                const WINDOW = 80;
+                const start  = Math.max(0, currentEp - WINDOW - 1);
+                const end    = Math.min(allEps.length, currentEp + WINDOW);
+                const slice  = allEps.slice(start, end);
+                return (
+                  <>
+                    {start > 0 && (
+                      <div className="px-4 py-2 text-[10px] text-gray-600 text-center">
+                        EP 1 – {start} hidden · scroll up
+                      </div>
                     )}
-                  </div>
-                </button>
-              ))}
+                    {slice.map(({ ep }) => (
+                      <button
+                        key={ep}
+                        data-active={ep === currentEp}
+                        onClick={() => setCurrentEp(ep)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition border-b border-white/5 last:border-0 ${
+                          ep === currentEp
+                            ? "bg-indigo-600/20 border-l-2 border-l-indigo-500"
+                            : "hover:bg-white/5"
+                        }`}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black flex-shrink-0 ${
+                          ep === currentEp
+                            ? "bg-indigo-600 text-white"
+                            : "bg-white/10 text-gray-400"
+                        }`}>
+                          {ep}
+                        </div>
+                        <div>
+                          <p className={`text-xs font-bold ${ep === currentEp ? "text-white" : "text-gray-300"}`}>
+                            Episode {ep}
+                          </p>
+                          {ep === currentEp && (
+                            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
+                              Now Playing
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                    {end < allEps.length && (
+                      <div className="px-4 py-2 text-[10px] text-gray-600 text-center">
+                        EP {end + 1} – {allEps.length} hidden · scroll down
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
