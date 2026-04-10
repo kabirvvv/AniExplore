@@ -3,22 +3,23 @@ import {
   ArrowLeft, Star, Calendar, Tv, Layers, Loader2, AlertTriangle, RefreshCw,
 } from "lucide-react";
 
-const ANIPUB_BASE = "https://anipub.xyz";
+const ANIPUB = "https://anipub.xyz";
 
-// Strip the "src=" prefix AniPub puts on their embed links
-function extractSrc(link = "") {
-  return link.replace(/^src=/, "");
-}
+// Strip the "src=" prefix AniPub puts on every link value
+const extractSrc = (link = "") => link.replace(/^src=/, "");
+
+// Fix relative image paths
+const fixImage = (p) => (!p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`);
 
 export default function AnimeStreamPage({ anime, onBack }) {
-  const [currentEp,  setCurrentEp]  = useState(1);
-  const [allEps,     setAllEps]     = useState([]); // [{ ep: 1, src: "..." }, ...]
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
+  const [currentEp, setCurrentEp] = useState(1);
+  const [allEps,    setAllEps]    = useState([]); // [{ ep: 1, src: "..." }, ...]
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState(null);
 
   const epListRef = useRef(null);
 
-  // ── 1. Find AniPub ID by searching their API, then load episode links ────────
+  // ── Load episode links ────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
@@ -27,36 +28,42 @@ export default function AnimeStreamPage({ anime, onBack }) {
       setError(null);
       setAllEps([]);
 
-      const searchTitle = anime.title_english || anime.title || "";
-
       try {
-        // Step 1 — search AniPub for their internal ID
+        const searchTitle = anime.title_english || anime.title || "";
+
+        // Step 1 — Quick search to get AniPub's internal ID
+        // GET /api/search/:name → [{ Name, Id, Image, finder }, ...]
         const searchRes = await fetch(
-          `${ANIPUB_BASE}/v1/api/search?q=${encodeURIComponent(searchTitle)}`
+          `${ANIPUB}/api/search/${encodeURIComponent(searchTitle)}`
         );
-        if (!searchRes.ok) throw new Error(`Search failed: ${searchRes.status}`);
-        const searchJson = await searchRes.json();
+        if (!searchRes.ok) throw new Error(`Search failed (${searchRes.status})`);
 
-        // AniPub search likely returns an array — grab the first match
-        const results = searchJson?.results || searchJson?.data || searchJson || [];
-        const match   = Array.isArray(results) ? results[0] : null;
+        const results = await searchRes.json();
+        if (!Array.isArray(results) || results.length === 0) {
+          throw new Error(`"${searchTitle}" not found on AniPub.`);
+        }
 
-        if (!match) throw new Error(`"${searchTitle}" not found on AniPub.`);
+        const anipubId = results[0].Id;
+        if (!anipubId) throw new Error("AniPub search returned no ID.");
 
-        const anipubId = match.id || match._id || match.animeId;
-        if (!anipubId) throw new Error("AniPub returned a result but with no ID field.");
+        // Step 2 — Fetch streaming links
+        // GET /v1/api/details/:id → { local: { name, link, ep[] } }
+        const detailRes = await fetch(`${ANIPUB}/v1/api/details/${anipubId}`);
+        if (!detailRes.ok) throw new Error(`Details failed (${detailRes.status})`);
 
-        // Step 2 — fetch full details including episode links
-        const detailRes = await fetch(`${ANIPUB_BASE}/v1/api/details/${anipubId}`);
-        if (!detailRes.ok) throw new Error(`Details fetch failed: ${detailRes.status}`);
         const { local } = await detailRes.json();
+        if (!local?.link) throw new Error("No streaming links in AniPub response.");
 
-        if (!local?.link) throw new Error("No episode links in AniPub response.");
-
-        // Step 3 — build the full episode list exactly as AniPub docs show
+        // Step 3 — Build full episode list exactly per docs:
+        //   local.link          = EP 1
+        //   local.ep[0].link    = EP 2
+        //   local.ep[1].link    = EP 3  ... etc.
         const eps = [
-          { ep: 1, src: extractSrc(local.link) },                         // EP 1
-          ...(local.ep || []).map((e, i) => ({ ep: i + 2, src: extractSrc(e.link) })), // EP 2+
+          { ep: 1, src: extractSrc(local.link) },
+          ...(local.ep || []).map((e, i) => ({
+            ep: i + 2,
+            src: extractSrc(e.link),
+          })),
         ];
 
         if (!cancelled) {
@@ -83,8 +90,13 @@ export default function AnimeStreamPage({ anime, onBack }) {
     active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [currentEp]);
 
-  const totalEps  = allEps.length || anime.episodes || 0;
+  const totalEps   = allEps.length;
   const currentSrc = allEps.find((e) => e.ep === currentEp)?.src || "";
+
+  const coverImg =
+    anime.images?.webp?.large_image_url ||
+    anime.images?.jpg?.large_image_url  ||
+    fixImage(anime.ImagePath);
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
@@ -104,7 +116,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
               {anime.title}
             </h1>
             <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
-              {loading ? "Loading…" : `Episode ${currentEp} of ${totalEps}`}
+              {loading ? "Finding stream…" : `Episode ${currentEp} of ${totalEps}`}
             </p>
           </div>
         </div>
@@ -118,7 +130,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
           {/* PLAYER AREA */}
           <div className="relative bg-black rounded-2xl overflow-hidden aspect-video">
 
-            {/* Loading */}
+            {/* Loading state */}
             {loading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black">
                 <Loader2 className="w-10 h-10 text-indigo-400 animate-spin" />
@@ -128,7 +140,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
               </div>
             )}
 
-            {/* Error */}
+            {/* Error state */}
             {error && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/90">
                 <div className="text-center px-6">
@@ -145,7 +157,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
               </div>
             )}
 
-            {/* IFRAME — only shown when we have a src */}
+            {/* IFRAME — re-mounts on every src change via key */}
             {!loading && !error && currentSrc && (
               <iframe
                 key={currentSrc}
@@ -162,11 +174,13 @@ export default function AnimeStreamPage({ anime, onBack }) {
           {/* ANIME INFO */}
           <div className="mt-5 bg-white/5 rounded-2xl border border-white/5 p-5">
             <div className="flex items-start gap-4">
-              <img
-                src={anime.images?.webp?.large_image_url || anime.images?.jpg?.large_image_url}
-                alt={anime.title}
-                className="w-16 rounded-xl object-cover flex-shrink-0"
-              />
+              {coverImg && (
+                <img
+                  src={coverImg}
+                  alt={anime.title}
+                  className="w-16 rounded-xl object-cover flex-shrink-0"
+                />
+              )}
               <div className="flex-1 min-w-0">
                 <h2 className="font-black text-white text-lg tracking-tight">{anime.title}</h2>
                 <div className="flex flex-wrap items-center gap-3 mt-1 mb-3">
@@ -194,7 +208,10 @@ export default function AnimeStreamPage({ anime, onBack }) {
                 {anime.genres?.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-3">
                     {anime.genres.slice(0, 6).map((g) => (
-                      <span key={g.name} className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
+                      <span
+                        key={g.name}
+                        className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-[10px] font-bold text-indigo-400 uppercase tracking-wide"
+                      >
                         {g.name}
                       </span>
                     ))}
@@ -218,7 +235,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
                 Episodes
               </span>
               <span className="text-[10px] font-bold text-gray-500">
-                {totalEps} total
+                {loading ? "…" : `${totalEps} total`}
               </span>
             </div>
             <div
