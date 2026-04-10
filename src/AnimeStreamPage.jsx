@@ -7,23 +7,48 @@ const ANIPUB = "https://anipub.xyz";
 const fixImage = (p) =>
   !p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`;
 
-// Read the audio type directly from the AniPub video URL
-// e.g. "https://www.anipub.xyz/video/2142/sub" → "sub"
-//      "https://www.anipub.xyz/video/2143/dub" → "dub"
+// ─── helper ────────────────────────────────────────────────────────────────
 function getAudioType(src = "") {
-  if (src.endsWith("/dub")) return "dub";
-  if (src.endsWith("/sub")) return "sub";
-  return "sub"; // default
+  if (src.includes("/dub")) return "dub"; // ← use includes(), not endsWith()
+  if (src.includes("/sub")) return "sub"; // in case query-strings are appended
+  return null; // unknown — we'll filter these out
 }
 
+// ─── fetch ONE audio type from your API ────────────────────────────────────
+async function fetchEpsForType(anime, type) {
+  const params = new URLSearchParams();
+  params.set("audioType", type); // ← NEW: tell the API which type you want
+
+  if (anime.anipub_id) {
+    params.set("anipubId", anime.anipub_id);
+  } else {
+    params.set("title", anime.title_english || anime.title || "");
+    if (anime.title_romaji) params.set("titleRomaji", anime.title_romaji);
+  }
+
+  const res  = await fetch(`/api/anime-episodes?${params}`);
+  const data = await res.json();
+
+  if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
+
+  return (data.episodes || []).map((e) => ({
+    ep:   e.number,
+    src:  e.src,
+    type: getAudioType(e.src) || type, // fall back to the requested type
+  }));
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 export default function AnimeStreamPage({ anime, onBack }) {
   const [audioType,  setAudioType]  = useState("sub");
-  const [allEps,     setAllEps]     = useState([]); // [{ ep, src, type }]
+  const [allEps,     setAllEps]     = useState([]);
+  const [currentEp,  setCurrentEp]  = useState(null); // ← null until loaded
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
 
   const epListRef = useRef(null);
 
+  // ── LOAD BOTH SUB AND DUB IN PARALLEL ────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
@@ -31,36 +56,33 @@ export default function AnimeStreamPage({ anime, onBack }) {
       setLoading(true);
       setError(null);
       setAllEps([]);
+      setCurrentEp(null);
 
       try {
-        const params = new URLSearchParams();
-        if (anime.anipub_id) {
-          params.set("anipubId", anime.anipub_id);
-        } else {
-          params.set("title", anime.title_english || anime.title || "");
-          if (anime.title_romaji) params.set("titleRomaji", anime.title_romaji);
+        // Fetch sub + dub at the same time; ignore whichever fails
+        const [subResult, dubResult] = await Promise.allSettled([
+          fetchEpsForType(anime, "sub"),
+          fetchEpsForType(anime, "dub"),
+        ]);
+
+        const subEps = subResult.status === "fulfilled" ? subResult.value : [];
+        const dubEps = dubResult.status === "fulfilled" ? dubResult.value : [];
+
+        const combined = [...subEps, ...dubEps];
+
+        if (!combined.length) {
+          throw new Error("No episodes found on AniPub for sub or dub.");
         }
 
-        const res  = await fetch(`/api/anime-episodes?${params}`);
-        const data = await res.json();
-
-        if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
-        if (!data.episodes?.length) throw new Error("No episodes returned from AniPub.");
-
-        // Tag each episode with its real audio type from the URL
-        const eps = data.episodes.map((e) => ({
-          ep:   e.number,
-          src:  e.src,
-          type: getAudioType(e.src), // "sub" or "dub" — read from actual URL
-        }));
-
-        // Default to sub if available, otherwise dub
-        const hasSub = eps.some((e) => e.type === "sub");
+        // Default audio type: prefer sub if available
+        const hasSub = subEps.length > 0;
         const defaultType = hasSub ? "sub" : "dub";
+        const defaultEps  = hasSub ? subEps : dubEps;
 
         if (!cancelled) {
-          setAllEps(eps);
+          setAllEps(combined);
           setAudioType(defaultType);
+          setCurrentEp(defaultEps[0]?.ep ?? 1); // ← safe first episode
           setLoading(false);
         }
       } catch (e) {
@@ -73,31 +95,26 @@ export default function AnimeStreamPage({ anime, onBack }) {
     return () => { cancelled = true; };
   }, [anime]);
 
-  // Episodes filtered by selected audio type
+  // ── DERIVED ──────────────────────────────────────────────────────────────
   const filteredEps = allEps.filter((e) => e.type === audioType);
+  const subCount    = allEps.filter((e) => e.type === "sub").length;
+  const dubCount    = allEps.filter((e) => e.type === "dub").length;
+  const totalEps    = filteredEps.length;
+  const currentSrc  = filteredEps.find((e) => e.ep === currentEp)?.src || "";
 
-  // How many of each type exist
-  const subCount = allEps.filter((e) => e.type === "sub").length;
-  const dubCount = allEps.filter((e) => e.type === "dub").length;
-
-  // Current episode — pick first available in filtered list on toggle
-  const [currentEp, setCurrentEp] = useState(1);
-
-  // When audio type changes, jump to ep 1 of that type (or first available)
+  // ── WHEN TOGGLE SWITCHES, JUMP TO FIRST EP OF NEW TYPE ───────────────────
   useEffect(() => {
     const first = filteredEps[0]?.ep;
     if (first != null) setCurrentEp(first);
-  }, [audioType]); // eslint-disable-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioType]);
 
-  // Scroll active ep into view
+  // ── SCROLL ACTIVE EP INTO VIEW ────────────────────────────────────────────
   useEffect(() => {
     if (!epListRef.current) return;
     const active = epListRef.current.querySelector("[data-active='true']");
     active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [currentEp, audioType]);
-
-  const totalEps   = filteredEps.length;
-  const currentSrc = filteredEps.find((e) => e.ep === currentEp)?.src || "";
 
   const coverImg =
     anime.images?.webp?.large_image_url ||
@@ -121,7 +138,11 @@ export default function AnimeStreamPage({ anime, onBack }) {
               {anime.title}
             </h1>
             <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
-              {loading ? "Loading…" : `Episode ${currentEp} of ${totalEps} · ${audioType.toUpperCase()}`}
+              {loading
+                ? "Loading…"
+                : currentEp != null
+                  ? `Episode ${currentEp} of ${totalEps} · ${audioType.toUpperCase()}`
+                  : ""}
             </p>
           </div>
         </div>
@@ -132,7 +153,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
         {/* ── LEFT ─────────────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
 
-          {/* SUB / DUB TOGGLE — only shown after load, only enables types that exist */}
+          {/* SUB / DUB TOGGLE */}
           {!loading && !error && (
             <div className="flex items-center gap-3 mb-3">
               <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
@@ -164,14 +185,17 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   </button>
                 ))}
               </div>
-              {subCount === 0 && <span className="text-[10px] text-yellow-500 font-bold">Sub not available</span>}
-              {dubCount === 0 && <span className="text-[10px] text-yellow-500 font-bold">Dub not available</span>}
+              {subCount === 0 && !loading && (
+                <span className="text-[10px] text-yellow-500 font-bold">Sub not available</span>
+              )}
+              {dubCount === 0 && !loading && (
+                <span className="text-[10px] text-yellow-500 font-bold">Dub not available</span>
+              )}
             </div>
           )}
 
           {/* PLAYER */}
           <div className="relative bg-black rounded-2xl overflow-hidden aspect-video">
-
             {loading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black">
                 <Loader2 className="w-10 h-10 text-indigo-400 animate-spin" />
@@ -197,7 +221,6 @@ export default function AnimeStreamPage({ anime, onBack }) {
               </div>
             )}
 
-            {/* sandbox blocks popup/redirect ads while keeping the player working */}
             {!loading && !error && currentSrc && (
               <iframe
                 key={currentSrc}
