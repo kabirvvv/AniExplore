@@ -1,3 +1,36 @@
+// GET /api/anime-search?q=one+piece&page=1
+// Searches AniPub directly — returns anipub_id so episodes never need title matching.
+
+const ANIPUB = "https://anipub.xyz";
+
+const fixImage = (p) =>
+  !p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`;
+
+function normalizeAnipub(item) {
+  const img = fixImage(item.ImagePath || item.Image || "");
+  return {
+    anipub_id:         item._id || item.Id,
+    anipub_finder:     item.finder || null,
+    title:             item.Name,
+    title_english:     item.Name,
+    title_romaji:      item.Synonyms || item.Name,
+    title_japanese:    null,
+    anipub_find_title: item.Name,
+    images: {
+      webp: { large_image_url: img, image_url: img },
+      jpg:  { large_image_url: img },
+    },
+    score:    item.MALScore    || null,
+    genres:   (item.Genres     || []).map((g, i) => ({ mal_id: i, name: g })),
+    episodes: item.epCount     || null,
+    status:   item.Status      || null,
+    format:   item.format      || null,
+    year:     item.Premiered   || null,
+    studio:   item.Studios     || null,
+    synopsis: item.DescripTion || null,
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -5,69 +38,32 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=60");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const { q, limit = 24, page = 1 } = req.query;
+  const { q, page = 1 } = req.query;
   if (!q?.trim()) return res.status(400).json({ error: "q param required" });
 
-  const gql = `
-    query ($search: String, $perPage: Int, $page: Int) {
-      Page(page: $page, perPage: $perPage) {
-        pageInfo { total currentPage hasNextPage }
-        media(search: $search, type: ANIME, sort: [SEARCH_MATCH], isAdult: false) {
-          id idMal
-          title { romaji english native }
-          coverImage { extraLarge large }
-          averageScore
-          genres
-          episodes
-          status
-          description(asHtml: false)
-          format
-          seasonYear
-        }
-      }
-    }
-  `;
+  const headers = { Accept: "application/json", "Cache-Control": "no-cache" };
 
   try {
-    const r = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query: gql, variables: { search: q.trim(), perPage: parseInt(limit), page: parseInt(page) } }),
-    });
+    // GET /api/searchall/:name?page=N → { currentPage, AniData: [...] }
+    const r = await fetch(
+      `${ANIPUB}/api/searchall/${encodeURIComponent(q.trim())}?page=${page}`,
+      { headers }
+    );
+    if (!r.ok) return res.status(r.status).json({ error: `AniPub error: ${r.status}` });
+
     const json = await r.json();
-    if (!r.ok || json.errors) throw new Error(json.errors?.[0]?.message || `AniList ${r.status}`);
+    // searchall → { currentPage, AniData }
+    // search    → flat array  [{ Name, Id, Image, finder }]
+    const items = json.AniData || (Array.isArray(json) ? json : []);
 
-    const pageInfo = json.data.Page.pageInfo;
-    const media    = json.data.Page.media || [];
-
-    const data = media.map((m) => ({
-      anilist_id: m.id,
-      mal_id:     m.idMal,
-      title:      m.title.english || m.title.romaji,
-      title_english: m.title.english,
-      title_romaji:  m.title.romaji,
-      title_japanese: m.title.native,
-      anipub_find_title: m.title.english || m.title.romaji,
-      images: {
-        webp: { large_image_url: m.coverImage.extraLarge || m.coverImage.large, image_url: m.coverImage.large },
-        jpg:  { large_image_url: m.coverImage.extraLarge || m.coverImage.large },
-      },
-      score:    m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
-      genres:   (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
-      episodes: m.episodes,
-      status:   m.status,
-      format:   m.format,
-      year:     m.seasonYear,
-      synopsis: m.description,
-    }));
+    const data = items.map(normalizeAnipub);
 
     return res.status(200).json({
       data,
       pagination: {
-        total: pageInfo.total || data.length,
-        currentPage: pageInfo.currentPage || parseInt(page),
-        hasNextPage: pageInfo.hasNextPage ?? false,
-        perPage: parseInt(limit),
+        currentPage: json.currentPage || parseInt(page),
+        hasNextPage: data.length > 0,
+        perPage:     data.length,
       },
     });
   } catch (err) {
