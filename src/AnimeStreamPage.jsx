@@ -7,17 +7,18 @@ const ANIPUB = "https://anipub.xyz";
 const fixImage = (p) =>
   !p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`;
 
-// Swap /sub ↔ /dub at the end of an AniPub video URL
-// e.g. https://www.anipub.xyz/video/2142/sub → .../dub
-function swapAudioType(src, type) {
-  if (!src) return src;
-  return src.replace(/\/(sub|dub)$/, `/${type}`);
+// Read the audio type directly from the AniPub video URL
+// e.g. "https://www.anipub.xyz/video/2142/sub" → "sub"
+//      "https://www.anipub.xyz/video/2143/dub" → "dub"
+function getAudioType(src = "") {
+  if (src.endsWith("/dub")) return "dub";
+  if (src.endsWith("/sub")) return "sub";
+  return "sub"; // default
 }
 
 export default function AnimeStreamPage({ anime, onBack }) {
-  const [currentEp,  setCurrentEp]  = useState(1);
   const [audioType,  setAudioType]  = useState("sub");
-  const [allEps,     setAllEps]     = useState([]);
+  const [allEps,     setAllEps]     = useState([]); // [{ ep, src, type }]
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
 
@@ -46,8 +47,22 @@ export default function AnimeStreamPage({ anime, onBack }) {
         if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
         if (!data.episodes?.length) throw new Error("No episodes returned from AniPub.");
 
-        const eps = data.episodes.map((e) => ({ ep: e.number, src: e.src }));
-        if (!cancelled) { setAllEps(eps); setLoading(false); }
+        // Tag each episode with its real audio type from the URL
+        const eps = data.episodes.map((e) => ({
+          ep:   e.number,
+          src:  e.src,
+          type: getAudioType(e.src), // "sub" or "dub" — read from actual URL
+        }));
+
+        // Default to sub if available, otherwise dub
+        const hasSub = eps.some((e) => e.type === "sub");
+        const defaultType = hasSub ? "sub" : "dub";
+
+        if (!cancelled) {
+          setAllEps(eps);
+          setAudioType(defaultType);
+          setLoading(false);
+        }
       } catch (e) {
         console.error("[AnimeStream]", e);
         if (!cancelled) { setError(e.message); setLoading(false); }
@@ -58,18 +73,31 @@ export default function AnimeStreamPage({ anime, onBack }) {
     return () => { cancelled = true; };
   }, [anime]);
 
+  // Episodes filtered by selected audio type
+  const filteredEps = allEps.filter((e) => e.type === audioType);
+
+  // How many of each type exist
+  const subCount = allEps.filter((e) => e.type === "sub").length;
+  const dubCount = allEps.filter((e) => e.type === "dub").length;
+
+  // Current episode — pick first available in filtered list on toggle
+  const [currentEp, setCurrentEp] = useState(1);
+
+  // When audio type changes, jump to ep 1 of that type (or first available)
+  useEffect(() => {
+    const first = filteredEps[0]?.ep;
+    if (first != null) setCurrentEp(first);
+  }, [audioType]); // eslint-disable-line
+
   // Scroll active ep into view
   useEffect(() => {
     if (!epListRef.current) return;
     const active = epListRef.current.querySelector("[data-active='true']");
     active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [currentEp]);
+  }, [currentEp, audioType]);
 
-  const totalEps = allEps.length;
-
-  // Base src from episode list, then swap audio suffix for sub/dub
-  const baseSrc    = allEps.find((e) => e.ep === currentEp)?.src || "";
-  const currentSrc = swapAudioType(baseSrc, audioType);
+  const totalEps   = filteredEps.length;
+  const currentSrc = filteredEps.find((e) => e.ep === currentEp)?.src || "";
 
   const coverImg =
     anime.images?.webp?.large_image_url ||
@@ -104,30 +132,40 @@ export default function AnimeStreamPage({ anime, onBack }) {
         {/* ── LEFT ─────────────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
 
-          {/* SUB / DUB TOGGLE — shown above player once loaded */}
+          {/* SUB / DUB TOGGLE — only shown after load, only enables types that exist */}
           {!loading && !error && (
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-3 mb-3">
               <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
                 Audio
               </span>
               <div className="flex items-center bg-white/5 border border-white/10 rounded-xl overflow-hidden">
-                {["sub", "dub"].map((t) => (
+                {[
+                  { t: "sub", count: subCount, label: "SUB" },
+                  { t: "dub", count: dubCount, label: "DUB" },
+                ].map(({ t, count, label }) => (
                   <button
                     key={t}
-                    onClick={() => setAudioType(t)}
+                    onClick={() => count > 0 && setAudioType(t)}
+                    disabled={count === 0}
                     className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest transition ${
                       audioType === t
                         ? "bg-indigo-600 text-white"
+                        : count === 0
+                        ? "text-gray-700 cursor-not-allowed"
                         : "text-gray-500 hover:text-white"
                     }`}
                   >
-                    {t}
+                    {label}
+                    {count > 0 && (
+                      <span className={`ml-1.5 text-[9px] font-bold ${audioType === t ? "text-indigo-300" : "text-gray-600"}`}>
+                        {count}ep
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
-              <span className="text-[10px] text-gray-600 font-bold">
-                {audioType === "sub" ? "Subtitled" : "English Dubbed"}
-              </span>
+              {subCount === 0 && <span className="text-[10px] text-yellow-500 font-bold">Sub not available</span>}
+              {dubCount === 0 && <span className="text-[10px] text-yellow-500 font-bold">Dub not available</span>}
             </div>
           )}
 
@@ -159,11 +197,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
               </div>
             )}
 
-            {/* iframe:
-                - key forces full remount on every src change (ep or audio toggle)
-                - sandbox blocks popups / top-navigation (kills most ad redirects)
-                - allow-scripts + allow-same-origin needed for the player to work
-                - allow-presentation + allow-fullscreen for native fullscreen      */}
+            {/* sandbox blocks popup/redirect ads while keeping the player working */}
             {!loading && !error && currentSrc && (
               <iframe
                 key={currentSrc}
@@ -237,7 +271,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
                 Episodes
               </span>
               <span className="text-[10px] font-bold text-gray-500">
-                {loading ? "…" : `${totalEps} total`}
+                {loading ? "…" : `${totalEps} ${audioType}`}
               </span>
             </div>
             <div
@@ -250,7 +284,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
                 </div>
               )}
-              {!loading && allEps.map(({ ep }) => (
+              {!loading && filteredEps.map(({ ep }) => (
                 <button
                   key={ep}
                   data-active={ep === currentEp}
@@ -280,6 +314,19 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   </div>
                 </button>
               ))}
+              {!loading && filteredEps.length === 0 && (
+                <div className="px-4 py-8 text-center">
+                  <p className="text-xs font-bold text-gray-500">
+                    No {audioType} episodes available.
+                  </p>
+                  <button
+                    onClick={() => setAudioType(audioType === "sub" ? "dub" : "sub")}
+                    className="mt-2 text-[10px] font-black text-indigo-400 uppercase tracking-widest hover:text-indigo-300"
+                  >
+                    Switch to {audioType === "sub" ? "dub" : "sub"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
