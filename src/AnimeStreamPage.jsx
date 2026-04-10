@@ -1,26 +1,92 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
-  ArrowLeft, Star, Calendar, Tv, Layers,
+  ArrowLeft, Star, Calendar, Tv, Layers, Loader2, AlertTriangle, RefreshCw,
 } from "lucide-react";
 
-const ANIPUB = "https://api.anipub.xyz";
+const ANIPUB_BASE = "https://anipub.xyz";
 
-function toSlug(t = "") {
-  return t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+// Strip the "src=" prefix AniPub puts on their embed links
+function extractSrc(link = "") {
+  return link.replace(/^src=/, "");
 }
 
 export default function AnimeStreamPage({ anime, onBack }) {
-  const totalEps = anime.episodes || 12;
-  const episodes = Array.from({ length: totalEps }, (_, i) => i + 1);
+  const [currentEp,  setCurrentEp]  = useState(1);
+  const [allEps,     setAllEps]     = useState([]); // [{ ep: 1, src: "..." }, ...]
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
 
-  const [currentEp, setCurrentEp] = useState(1);
-  const [audioType, setAudioType] = useState("sub");
+  const epListRef = useRef(null);
 
-  const slug = toSlug(anime.title_english || anime.title || "");
+  // ── 1. Find AniPub ID by searching their API, then load episode links ────────
+  useEffect(() => {
+    let cancelled = false;
 
-  // AniPub embed URL — adjust path if AniPub uses a different embed route
-  const iframeSrc = `${ANIPUB}/anime/embed/${slug}/${currentEp}?type=${audioType}`;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      setAllEps([]);
 
+      const searchTitle = anime.title_english || anime.title || "";
+
+      try {
+        // Step 1 — search AniPub for their internal ID
+        const searchRes = await fetch(
+          `${ANIPUB_BASE}/v1/api/search?q=${encodeURIComponent(searchTitle)}`
+        );
+        if (!searchRes.ok) throw new Error(`Search failed: ${searchRes.status}`);
+        const searchJson = await searchRes.json();
+
+        // AniPub search likely returns an array — grab the first match
+        const results = searchJson?.results || searchJson?.data || searchJson || [];
+        const match   = Array.isArray(results) ? results[0] : null;
+
+        if (!match) throw new Error(`"${searchTitle}" not found on AniPub.`);
+
+        const anipubId = match.id || match._id || match.animeId;
+        if (!anipubId) throw new Error("AniPub returned a result but with no ID field.");
+
+        // Step 2 — fetch full details including episode links
+        const detailRes = await fetch(`${ANIPUB_BASE}/v1/api/details/${anipubId}`);
+        if (!detailRes.ok) throw new Error(`Details fetch failed: ${detailRes.status}`);
+        const { local } = await detailRes.json();
+
+        if (!local?.link) throw new Error("No episode links in AniPub response.");
+
+        // Step 3 — build the full episode list exactly as AniPub docs show
+        const eps = [
+          { ep: 1, src: extractSrc(local.link) },                         // EP 1
+          ...(local.ep || []).map((e, i) => ({ ep: i + 2, src: extractSrc(e.link) })), // EP 2+
+        ];
+
+        if (!cancelled) {
+          setAllEps(eps);
+          setLoading(false);
+        }
+      } catch (e) {
+        console.error("[AnimeStream]", e);
+        if (!cancelled) {
+          setError(e.message);
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [anime]);
+
+  // ── Scroll active episode into view ──────────────────────────────────────────
+  useEffect(() => {
+    if (!epListRef.current) return;
+    const active = epListRef.current.querySelector("[data-active='true']");
+    active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [currentEp]);
+
+  const totalEps  = allEps.length || anime.episodes || 0;
+  const currentSrc = allEps.find((e) => e.ep === currentEp)?.src || "";
+
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
 
@@ -38,24 +104,8 @@ export default function AnimeStreamPage({ anime, onBack }) {
               {anime.title}
             </h1>
             <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
-              Episode {currentEp} · {audioType.toUpperCase()}
+              {loading ? "Loading…" : `Episode ${currentEp} of ${totalEps}`}
             </p>
-          </div>
-          {/* Sub / Dub toggle */}
-          <div className="flex items-center bg-white/5 border border-white/10 rounded-xl overflow-hidden flex-shrink-0">
-            {["sub", "dub"].map((t) => (
-              <button
-                key={t}
-                onClick={() => setAudioType(t)}
-                className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest transition ${
-                  audioType === t
-                    ? "bg-indigo-600 text-white"
-                    : "text-gray-500 hover:text-white"
-                }`}
-              >
-                {t}
-              </button>
-            ))}
           </div>
         </div>
       </header>
@@ -65,17 +115,48 @@ export default function AnimeStreamPage({ anime, onBack }) {
         {/* ── LEFT: iframe + Info ───────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
 
-          {/* IFRAME PLAYER */}
+          {/* PLAYER AREA */}
           <div className="relative bg-black rounded-2xl overflow-hidden aspect-video">
-            <iframe
-              key={`${slug}-${currentEp}-${audioType}`}
-              src={iframeSrc}
-              className="w-full h-full"
-              allowFullScreen
-              allow="autoplay; fullscreen; encrypted-media"
-              frameBorder="0"
-              scrolling="no"
-            />
+
+            {/* Loading */}
+            {loading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black">
+                <Loader2 className="w-10 h-10 text-indigo-400 animate-spin" />
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                  Finding stream…
+                </p>
+              </div>
+            )}
+
+            {/* Error */}
+            {error && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/90">
+                <div className="text-center px-6">
+                  <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
+                  <p className="text-sm font-bold text-red-400 mb-1">Stream Error</p>
+                  <p className="text-xs text-gray-500 mb-4 max-w-xs">{error}</p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-black uppercase tracking-widest transition mx-auto"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Retry
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* IFRAME — only shown when we have a src */}
+            {!loading && !error && currentSrc && (
+              <iframe
+                key={currentSrc}
+                src={currentSrc}
+                className="w-full h-full"
+                allowFullScreen
+                allow="autoplay; fullscreen; encrypted-media"
+                frameBorder="0"
+                scrolling="no"
+              />
+            )}
           </div>
 
           {/* ANIME INFO */}
@@ -140,10 +221,20 @@ export default function AnimeStreamPage({ anime, onBack }) {
                 {totalEps} total
               </span>
             </div>
-            <div className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 160px)" }}>
-              {episodes.map((ep) => (
+            <div
+              ref={epListRef}
+              className="overflow-y-auto"
+              style={{ maxHeight: "calc(100vh - 160px)" }}
+            >
+              {loading && (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
+                </div>
+              )}
+              {!loading && allEps.map(({ ep }) => (
                 <button
                   key={ep}
+                  data-active={ep === currentEp}
                   onClick={() => setCurrentEp(ep)}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-left transition border-b border-white/5 last:border-0 ${
                     ep === currentEp
