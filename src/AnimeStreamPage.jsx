@@ -15,10 +15,7 @@ const fixImage = (p) =>
 
 // Fetch with no caching to avoid 304 issues
 const apiFetch = (url) =>
-  fetch(url, {
-    cache: "no-store",
-    headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
-  });
+  fetch(url, { cache: "no-store" });
 
 export default function AnimeStreamPage({ anime, onBack }) {
   const [currentEp, setCurrentEp] = useState(1);
