@@ -2,7 +2,8 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=60");
+  res.setHeader("Cache-Control", "no-cache, s-maxage=300, stale-while-revalidate=60");
+  res.setHeader("ETag", "false");
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const { limit = 24, page = 1 } = req.query;
