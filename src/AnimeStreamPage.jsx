@@ -3,31 +3,21 @@ import {
   ArrowLeft, Star, Calendar, Tv, Layers, Loader2, AlertTriangle, RefreshCw,
 } from "lucide-react";
 
-// Confirmed working base URL from Termux tests
+// AniPub has no CORS preflight support — all calls must go through
+// the Vercel proxy (/api/anime-episodes) instead of hitting anipub.xyz directly.
+
+// Fix relative image paths (still needed for cover images)
 const ANIPUB = "https://anipub.xyz";
-
-// Strip the "src=" prefix AniPub puts on every link
-const extractSrc = (link = "") => link.replace(/^src=/, "").trim();
-
-// Fix relative image paths
 const fixImage = (p) =>
   !p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`;
-
-// Fetch with no caching to avoid 304 issues
-const apiFetch = (url) =>
-  fetch(url, { cache: "no-store" });
 
 export default function AnimeStreamPage({ anime, onBack }) {
   const [currentEp, setCurrentEp] = useState(1);
   const [allEps,    setAllEps]    = useState([]); // [{ ep: 1, src: "https://..." }, ...]
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
-  const [retryKey,  setRetryKey]  = useState(0); // bump to re-run load()
 
   const epListRef = useRef(null);
-
-  // Bug fix: depend on stable ID + retryKey, not the anime object reference
-  const stableId = anime.anilist_id ?? anime.mal_id ?? anime.title;
 
   useEffect(() => {
     let cancelled = false;
@@ -37,66 +27,23 @@ export default function AnimeStreamPage({ anime, onBack }) {
       setError(null);
       setAllEps([]);
 
-      // Build title candidates: try english → romaji → generic title
-      const titleCandidates = [
-        anime.title_english,
-        anime.title_romaji,
-        anime.title,
-      ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i); // dedupe
+      // AniPub 500s on CORS OPTIONS preflight — proxy through Vercel instead.
+      // /api/anime-episodes runs server-side, calls AniPub fine, returns episodes.
+      const title      = anime.title_english || anime.title || "";
+      const titleRomaji = anime.title_romaji || "";
 
       try {
-        // ── Step 1: find the AniPub ID ──────────────────────────────────────
-        // GET /api/find/:name → { exist: true, id: 10, ep: 1155 }
-        // Try each title variant — english often differs from AniPub's naming,
-        // romaji is frequently a better match.
-        let anipubId = null;
+        const params = new URLSearchParams({ title });
+        if (titleRomaji) params.set("titleRomaji", titleRomaji);
 
-        for (const t of titleCandidates) {
-          const findRes = await apiFetch(
-            `${ANIPUB}/api/find/${encodeURIComponent(t)}`
-          );
-          if (!findRes.ok) continue;
-          const findData = await findRes.json();
-          if (findData.exist && findData.id) { anipubId = findData.id; break; }
-        }
+        const res  = await fetch(`/api/anime-episodes?${params}`);
+        const data = await res.json();
 
-        // Fallback: /api/search/:name → [{ Name, Id, Image, finder }]
-        if (!anipubId) {
-          for (const t of titleCandidates) {
-            console.warn(`[AniPub] find() missed, trying search for "${t}"…`);
-            const searchRes = await apiFetch(
-              `${ANIPUB}/api/search/${encodeURIComponent(t)}`
-            );
-            if (!searchRes.ok) continue;
-            const searchData = await searchRes.json();
-            if (Array.isArray(searchData) && searchData.length) {
-              anipubId = searchData[0].Id;
-              break;
-            }
-          }
-        }
+        if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
+        if (!data.episodes?.length) throw new Error("No episodes returned.");
 
-        if (!anipubId) throw new Error(`"${titleCandidates[0]}" not found on AniPub.`);
-
-        // ── Step 2: get streaming links ─────────────────────────────────────
-        // GET /v1/api/details/:id → { local: { link: "src=https://...", ep: [{link}, ...] } }
-        const detailRes = await apiFetch(`${ANIPUB}/v1/api/details/${anipubId}`);
-        if (!detailRes.ok) throw new Error(`Details failed (${detailRes.status})`);
-
-        const { local } = await detailRes.json();
-        if (!local?.link) throw new Error("No streaming links returned.");
-
-        // ── Step 3: build episode list ──────────────────────────────────────
-        // local.link        = EP 1
-        // local.ep[0].link  = EP 2
-        // local.ep[1].link  = EP 3 … etc.
-        const eps = [
-          { ep: 1, src: extractSrc(local.link) },
-          ...(local.ep || []).map((e, i) => ({
-            ep: i + 2,
-            src: extractSrc(e?.link ?? ""),
-          })),
-        ].filter((e) => e.src); // drop episodes with no src (broken links)
+        // /api/anime-episodes returns: { episodes: [{ number, src }], title, totalEpisodes }
+        const eps = data.episodes.map((e) => ({ ep: e.number, src: e.src }));
 
         if (!cancelled) {
           setAllEps(eps);
@@ -113,7 +60,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
 
     load();
     return () => { cancelled = true; };
-  }, [stableId, retryKey]); // stable deps — avoids re-fetch on parent re-render
+  }, [anime]);
 
   // Scroll active episode into view
   useEffect(() => {
@@ -176,7 +123,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   <p className="text-sm font-bold text-red-400 mb-1">Stream Error</p>
                   <p className="text-xs text-gray-500 mb-4 max-w-xs">{error}</p>
                   <button
-                    onClick={() => { setError(null); setRetryKey((k) => k + 1); }}
+                    onClick={() => window.location.reload()}
                     className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-black uppercase tracking-widest transition mx-auto"
                   >
                     <RefreshCw className="w-3.5 h-3.5" /> Retry
@@ -276,58 +223,36 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />
                 </div>
               )}
-              {!loading && (() => {
-                // Virtualize: only render episodes near the active one to avoid
-                // freezing on long-running anime (One Piece = 1155 eps, etc.)
-                const WINDOW = 80;
-                const start  = Math.max(0, currentEp - WINDOW - 1);
-                const end    = Math.min(allEps.length, currentEp + WINDOW);
-                const slice  = allEps.slice(start, end);
-                return (
-                  <>
-                    {start > 0 && (
-                      <div className="px-4 py-2 text-[10px] text-gray-600 text-center">
-                        EP 1 – {start} hidden · scroll up
-                      </div>
+              {!loading && allEps.map(({ ep }) => (
+                <button
+                  key={ep}
+                  data-active={ep === currentEp}
+                  onClick={() => setCurrentEp(ep)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-left transition border-b border-white/5 last:border-0 ${
+                    ep === currentEp
+                      ? "bg-indigo-600/20 border-l-2 border-l-indigo-500"
+                      : "hover:bg-white/5"
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black flex-shrink-0 ${
+                    ep === currentEp
+                      ? "bg-indigo-600 text-white"
+                      : "bg-white/10 text-gray-400"
+                  }`}>
+                    {ep}
+                  </div>
+                  <div>
+                    <p className={`text-xs font-bold ${ep === currentEp ? "text-white" : "text-gray-300"}`}>
+                      Episode {ep}
+                    </p>
+                    {ep === currentEp && (
+                      <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
+                        Now Playing
+                      </p>
                     )}
-                    {slice.map(({ ep }) => (
-                      <button
-                        key={ep}
-                        data-active={ep === currentEp}
-                        onClick={() => setCurrentEp(ep)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition border-b border-white/5 last:border-0 ${
-                          ep === currentEp
-                            ? "bg-indigo-600/20 border-l-2 border-l-indigo-500"
-                            : "hover:bg-white/5"
-                        }`}
-                      >
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black flex-shrink-0 ${
-                          ep === currentEp
-                            ? "bg-indigo-600 text-white"
-                            : "bg-white/10 text-gray-400"
-                        }`}>
-                          {ep}
-                        </div>
-                        <div>
-                          <p className={`text-xs font-bold ${ep === currentEp ? "text-white" : "text-gray-300"}`}>
-                            Episode {ep}
-                          </p>
-                          {ep === currentEp && (
-                            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">
-                              Now Playing
-                            </p>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                    {end < allEps.length && (
-                      <div className="px-4 py-2 text-[10px] text-gray-600 text-center">
-                        EP {end + 1} – {allEps.length} hidden · scroll down
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         </div>
