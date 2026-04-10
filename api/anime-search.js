@@ -47,7 +47,7 @@ export default async function handler(req, res) {
       title_english: m.title.english,
       title_romaji:  m.title.romaji,
       title_japanese: m.title.native,
-      anipub_slug: toSlug(m.title.english || m.title.romaji),
+      anipub_find_title: m.title.english || m.title.romaji,
       images: {
         webp: { large_image_url: m.coverImage.extraLarge || m.coverImage.large, image_url: m.coverImage.large },
         jpg:  { large_image_url: m.coverImage.extraLarge || m.coverImage.large },
@@ -73,8 +73,4 @@ export default async function handler(req, res) {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
-}
-
-function toSlug(title = "") {
-  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
