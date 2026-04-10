@@ -1,4 +1,4 @@
-const ANIPUB = "https://api.anipub.xyz";
+const ANIPUB = "https://anipub.xyz";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
