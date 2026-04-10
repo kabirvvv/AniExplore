@@ -1,97 +1,67 @@
+// GET /api/top-anime-stream?page=1&limit=24
+// Fetches top-rated ANIME from AniPub directly (no AniList).
+// AniPub response includes _id so anime-episodes never needs title matching.
+
+const ANIPUB = "https://anipub.xyz";
+
+const fixImage = (p) =>
+  !p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`;
+
+function normalizeAnipub(item) {
+  const img = fixImage(item.ImagePath || item.Image || "");
+  return {
+    anipub_id:         item._id || item.Id,           // ← used directly in anime-episodes
+    anipub_finder:     item.finder || null,
+    title:             item.Name,
+    title_english:     item.Name,
+    title_romaji:      item.Synonyms || item.Name,
+    title_japanese:    null,
+    anipub_find_title: item.Name,
+    images: {
+      webp: { large_image_url: img, image_url: img },
+      jpg:  { large_image_url: img },
+    },
+    score:    item.MALScore   || null,
+    genres:   (item.Genres    || []).map((g, i) => ({ mal_id: i, name: g })),
+    episodes: item.epCount    || null,
+    status:   item.Status     || null,
+    format:   item.format     || null,
+    year:     item.Premiered  || null,
+    studio:   item.Studios    || null,
+    synopsis: item.DescripTion || null,
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Cache-Control", "no-cache, s-maxage=300, stale-while-revalidate=60");
-  res.setHeader("ETag", "false");
+  res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=60");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const { limit = 24, page = 1 } = req.query;
-
-  const query = `
-    query ($perPage: Int, $page: Int) {
-      Page(page: $page, perPage: $perPage) {
-        pageInfo { total currentPage hasNextPage }
-        media(
-          type: ANIME,
-          sort: [SCORE_DESC],
-          status_not: NOT_YET_RELEASED,
-          format_in: [TV, TV_SHORT, MOVIE, OVA, ONA, SPECIAL],
-          isAdult: false
-        ) {
-          id
-          idMal
-          title { romaji english native }
-          coverImage { extraLarge large }
-          averageScore
-          genres
-          episodes
-          status
-          format
-          seasonYear
-          description(asHtml: false)
-          studios(isMain: true) {
-            nodes { name }
-          }
-        }
-      }
-    }
-  `;
+  const page = parseInt(req.query.page) || 1;
 
   try {
-    const response = await fetch("https://graphql.anilist.co", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({
-        query,
-        variables: { perPage: parseInt(limit), page: parseInt(page) },
-      }),
+    // GET /api/findbyrating?page=N → { currentPage, AniData: [...] }
+    const r = await fetch(`${ANIPUB}/api/findbyrating?page=${page}`, {
+      headers: { Accept: "application/json", "Cache-Control": "no-cache" },
     });
+    if (!r.ok) return res.status(r.status).json({ error: `AniPub error: ${r.status}` });
 
-    if (!response.ok) {
-      return res.status(response.status).json({ error: `AniList error: ${response.status}` });
-    }
+    const json = await r.json();
+    const items = json.AniData || json.data || [];
 
-    const json = await response.json();
-    if (json.errors) {
-      return res.status(400).json({ error: json.errors[0]?.message || "AniList query error" });
-    }
-
-    const pageInfo = json.data?.Page?.pageInfo || {};
-    const media    = json.data?.Page?.media    || [];
-
-    const data = media.map((m) => ({
-      mal_id:         m.idMal,
-      anilist_id:     m.id,
-      title:          m.title.english || m.title.romaji,
-      title_english:  m.title.english,
-      title_romaji:   m.title.romaji,
-      title_japanese: m.title.native,
-      anipub_find_title: m.title.english || m.title.romaji,
-      images: {
-        webp: {
-          large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-          image_url:       m.coverImage.large,
-        },
-        jpg: { large_image_url: m.coverImage.extraLarge || m.coverImage.large },
-      },
-      score:    m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
-      genres:   (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
-      episodes: m.episodes,
-      status:   m.status,
-      format:   m.format,
-      year:     m.seasonYear,
-      studio:   m.studios?.nodes?.[0]?.name || null,
-      synopsis: m.description,
-    }));
+    // Fetch full info for each item to get epCount, Genres, Studios etc.
+    // AniPub /api/findbyrating only returns minimal fields — enrich with /api/info/:id
+    // But to avoid 24 extra requests we return what we have and let the detail page fetch more.
+    const data = items.map(normalizeAnipub);
 
     return res.status(200).json({
       data,
       pagination: {
-        total:       pageInfo.total       || data.length,
-        currentPage: pageInfo.currentPage || parseInt(page),
-        hasNextPage: pageInfo.hasNextPage ?? false,
-        perPage:     parseInt(limit),
+        currentPage: json.currentPage || page,
+        hasNextPage: data.length > 0,
+        perPage:     data.length,
       },
     });
   } catch (err) {
