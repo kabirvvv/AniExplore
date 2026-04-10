@@ -7,11 +7,19 @@ const ANIPUB = "https://anipub.xyz";
 const fixImage = (p) =>
   !p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`;
 
+// Swap /sub ↔ /dub at the end of an AniPub video URL
+// e.g. https://www.anipub.xyz/video/2142/sub → .../dub
+function swapAudioType(src, type) {
+  if (!src) return src;
+  return src.replace(/\/(sub|dub)$/, `/${type}`);
+}
+
 export default function AnimeStreamPage({ anime, onBack }) {
-  const [currentEp, setCurrentEp] = useState(1);
-  const [allEps,    setAllEps]    = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
+  const [currentEp,  setCurrentEp]  = useState(1);
+  const [audioType,  setAudioType]  = useState("sub");
+  const [allEps,     setAllEps]     = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
 
   const epListRef = useRef(null);
 
@@ -24,14 +32,10 @@ export default function AnimeStreamPage({ anime, onBack }) {
       setAllEps([]);
 
       try {
-        // Build params — pass anipub_id directly if available (no title matching needed)
         const params = new URLSearchParams();
-
         if (anime.anipub_id) {
-          // Best case: we have the ID from the listing, straight to details
           params.set("anipubId", anime.anipub_id);
         } else {
-          // Fallback: pass title and let the server do the lookup
           params.set("title", anime.title_english || anime.title || "");
           if (anime.title_romaji) params.set("titleRomaji", anime.title_romaji);
         }
@@ -42,19 +46,11 @@ export default function AnimeStreamPage({ anime, onBack }) {
         if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
         if (!data.episodes?.length) throw new Error("No episodes returned from AniPub.");
 
-        // data.episodes = [{ number: 1, src: "https://www.anipub.xyz/video/2142/sub" }, ...]
         const eps = data.episodes.map((e) => ({ ep: e.number, src: e.src }));
-
-        if (!cancelled) {
-          setAllEps(eps);
-          setLoading(false);
-        }
+        if (!cancelled) { setAllEps(eps); setLoading(false); }
       } catch (e) {
         console.error("[AnimeStream]", e);
-        if (!cancelled) {
-          setError(e.message);
-          setLoading(false);
-        }
+        if (!cancelled) { setError(e.message); setLoading(false); }
       }
     }
 
@@ -62,16 +58,20 @@ export default function AnimeStreamPage({ anime, onBack }) {
     return () => { cancelled = true; };
   }, [anime]);
 
-  // Scroll active episode into view
+  // Scroll active ep into view
   useEffect(() => {
     if (!epListRef.current) return;
     const active = epListRef.current.querySelector("[data-active='true']");
     active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [currentEp]);
 
-  const totalEps   = allEps.length;
-  const currentSrc = allEps.find((e) => e.ep === currentEp)?.src || "";
-  const coverImg   =
+  const totalEps = allEps.length;
+
+  // Base src from episode list, then swap audio suffix for sub/dub
+  const baseSrc    = allEps.find((e) => e.ep === currentEp)?.src || "";
+  const currentSrc = swapAudioType(baseSrc, audioType);
+
+  const coverImg =
     anime.images?.webp?.large_image_url ||
     anime.images?.jpg?.large_image_url  ||
     fixImage(anime.ImagePath);
@@ -93,7 +93,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
               {anime.title}
             </h1>
             <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
-              {loading ? "Finding stream…" : `Episode ${currentEp} of ${totalEps}`}
+              {loading ? "Loading…" : `Episode ${currentEp} of ${totalEps} · ${audioType.toUpperCase()}`}
             </p>
           </div>
         </div>
@@ -101,9 +101,37 @@ export default function AnimeStreamPage({ anime, onBack }) {
 
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 flex flex-col lg:flex-row gap-6">
 
-        {/* ── LEFT: iframe + Info ───────────────────────────────────────────── */}
+        {/* ── LEFT ─────────────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
 
+          {/* SUB / DUB TOGGLE — shown above player once loaded */}
+          {!loading && !error && (
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                Audio
+              </span>
+              <div className="flex items-center bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+                {["sub", "dub"].map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setAudioType(t)}
+                    className={`px-5 py-2 text-[11px] font-black uppercase tracking-widest transition ${
+                      audioType === t
+                        ? "bg-indigo-600 text-white"
+                        : "text-gray-500 hover:text-white"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <span className="text-[10px] text-gray-600 font-bold">
+                {audioType === "sub" ? "Subtitled" : "English Dubbed"}
+              </span>
+            </div>
+          )}
+
+          {/* PLAYER */}
           <div className="relative bg-black rounded-2xl overflow-hidden aspect-video">
 
             {loading && (
@@ -131,7 +159,11 @@ export default function AnimeStreamPage({ anime, onBack }) {
               </div>
             )}
 
-            {/* key forces full iframe remount on every episode change */}
+            {/* iframe:
+                - key forces full remount on every src change (ep or audio toggle)
+                - sandbox blocks popups / top-navigation (kills most ad redirects)
+                - allow-scripts + allow-same-origin needed for the player to work
+                - allow-presentation + allow-fullscreen for native fullscreen      */}
             {!loading && !error && currentSrc && (
               <iframe
                 key={currentSrc}
@@ -139,6 +171,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
                 className="w-full h-full"
                 allowFullScreen
                 allow="autoplay; fullscreen; encrypted-media"
+                sandbox="allow-scripts allow-same-origin allow-presentation allow-fullscreen"
                 frameBorder="0"
                 scrolling="no"
               />
