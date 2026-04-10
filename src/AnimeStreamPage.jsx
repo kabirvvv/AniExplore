@@ -15,9 +15,10 @@ function getAudioType(src = "") {
   return null;
 }
 
-async function fetchEpsForType(anime, type) {
+// Fetches ALL episodes (sub + dub) in a single API call.
+// The API always returns the combined list — no audioType filter needed.
+async function fetchAllEps(anime) {
   const params = new URLSearchParams();
-  params.set("audioType", type);
   if (anime.anipub_id) {
     params.set("anipubId", anime.anipub_id);
   } else {
@@ -28,10 +29,11 @@ async function fetchEpsForType(anime, type) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
   return (data.episodes || []).map((e) => ({
-    ep: e.number,
-    src: e.src,
-    type: e.audioType ?? getAudioType(e.src) ?? type,
-  }));
+    ep:   e.number,
+    src:  e.src,
+    // Trust the explicit audioType field from the API; fall back to URL sniffing only
+    type: e.audioType ?? getAudioType(e.src) ?? null,
+  })).filter((e) => e.type !== null); // drop entries with undetectable type
 }
 
 // ── Genre colour palette ──────────────────────────────────────────────────────
@@ -164,6 +166,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
   const [expanded,   setExpanded]   = useState(false);
+  const [retryKey,   setRetryKey]   = useState(0);   // increment to re-trigger load
   const epListRef = useRef(null);
 
   // Inject Google Fonts once
@@ -181,17 +184,14 @@ export default function AnimeStreamPage({ anime, onBack }) {
     async function load() {
       setLoading(true); setError(null); setAllEps([]); setCurrentEp(null);
       try {
-        const [subResult, dubResult] = await Promise.allSettled([
-          fetchEpsForType(anime, "sub"),
-          fetchEpsForType(anime, "dub"),
-        ]);
-        const subEps = subResult.status === "fulfilled" ? subResult.value : [];
-        const dubEps = dubResult.status === "fulfilled" ? dubResult.value : [];
-        const combined = [...subEps, ...dubEps];
-        if (!combined.length) throw new Error("No episodes found on AniPub.");
+        // Single call — the API already returns both sub and dub episodes
+        const episodes = await fetchAllEps(anime);
+        if (!episodes.length) throw new Error("No episodes found on AniPub.");
+        const subEps = episodes.filter((e) => e.type === "sub");
+        const dubEps = episodes.filter((e) => e.type === "dub");
         const defaultType = subEps.length > 0 ? "sub" : "dub";
         if (!cancelled) {
-          setAllEps(combined);
+          setAllEps(episodes);
           setAudioType(defaultType);
           setCurrentEp((subEps.length > 0 ? subEps : dubEps)[0]?.ep ?? 1);
           setLoading(false);
@@ -202,7 +202,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [anime]);
+  }, [anime, retryKey]);
 
   const filteredEps = allEps.filter((e) => e.type === audioType);
   const subCount    = allEps.filter((e) => e.type === "sub").length;
@@ -378,7 +378,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   <AlertTriangle size={36} color="#f87171" style={{ display: "block", margin: "0 auto 12px" }} />
                   <p style={{ fontSize: 14, fontWeight: 700, color: "#f87171", margin: "0 0 6px" }}>Stream Error</p>
                   <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", margin: "0 0 20px", maxWidth: 280 }}>{error}</p>
-                  <button onClick={() => window.location.reload()} style={{
+                  <button onClick={() => setRetryKey((k) => k + 1)} style={{
                     display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 20px",
                     background: "#6366f1", border: "none", borderRadius: 10, cursor: "pointer",
                     fontSize: 11, fontWeight: 900, color: "#fff", fontFamily: "inherit",
