@@ -23,11 +23,23 @@ export default async function handler(req, res) {
 
   try {
     // ── Step 1: resolve AniPub ID ─────────────────────────────────────────────
-    // Try all title candidates with /api/find/ first (exact, fast)
-    // then fall back to /api/search/ (fuzzy)
-    let anipubId = null;
-    const candidates = [title.trim(), titleRomaji?.trim()].filter(Boolean);
+    // Build a rich candidate list to handle titles with colons, apostrophes, etc.
+    // e.g. "Frieren: Beyond Journey's End" → AniPub needs "Frieren" or stripped form
+    const buildCandidates = (t) => {
+      if (!t) return [];
+      const clean  = t.replace(/[^a-zA-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim(); // strip special chars
+      const keyword = t.split(/[:\s,]/)[0].trim(); // first word before colon/comma
+      return [t, clean, keyword].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+    };
 
+    const candidates = [
+      ...buildCandidates(title.trim()),
+      ...buildCandidates(titleRomaji?.trim()),
+    ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+
+    let anipubId = null;
+
+    // Pass 1: /api/find/ — exact match, fast
     for (const t of candidates) {
       const r = await fetch(`${ANIPUB}/api/find/${encodeURIComponent(t)}`, { headers });
       if (r.ok) {
@@ -36,7 +48,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // Fallback: /api/search/ → [{ Name, Id, Image, finder }]
+    // Pass 2: /api/search/ — fuzzy match
     if (!anipubId) {
       for (const t of candidates) {
         const r = await fetch(`${ANIPUB}/api/search/${encodeURIComponent(t)}`, { headers });
