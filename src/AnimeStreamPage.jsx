@@ -1,19 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
-  ArrowLeft, Star, Calendar, Tv, Layers, Loader2, AlertTriangle, RefreshCw,
+  ArrowLeft, Star, Tv, Layers, Loader2, AlertTriangle, RefreshCw,
 } from "lucide-react";
 
-// AniPub has no CORS preflight support — all calls must go through
-// the Vercel proxy (/api/anime-episodes) instead of hitting anipub.xyz directly.
-
-// Fix relative image paths (still needed for cover images)
 const ANIPUB = "https://anipub.xyz";
 const fixImage = (p) =>
   !p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`;
 
 export default function AnimeStreamPage({ anime, onBack }) {
   const [currentEp, setCurrentEp] = useState(1);
-  const [allEps,    setAllEps]    = useState([]); // [{ ep: 1, src: "https://..." }, ...]
+  const [allEps,    setAllEps]    = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
 
@@ -27,22 +23,26 @@ export default function AnimeStreamPage({ anime, onBack }) {
       setError(null);
       setAllEps([]);
 
-      // AniPub 500s on CORS OPTIONS preflight — proxy through Vercel instead.
-      // /api/anime-episodes runs server-side, calls AniPub fine, returns episodes.
-      const title      = anime.title_english || anime.title || "";
-      const titleRomaji = anime.title_romaji || "";
-
       try {
-        const params = new URLSearchParams({ title });
-        if (titleRomaji) params.set("titleRomaji", titleRomaji);
+        // Build params — pass anipub_id directly if available (no title matching needed)
+        const params = new URLSearchParams();
+
+        if (anime.anipub_id) {
+          // Best case: we have the ID from the listing, straight to details
+          params.set("anipubId", anime.anipub_id);
+        } else {
+          // Fallback: pass title and let the server do the lookup
+          params.set("title", anime.title_english || anime.title || "");
+          if (anime.title_romaji) params.set("titleRomaji", anime.title_romaji);
+        }
 
         const res  = await fetch(`/api/anime-episodes?${params}`);
         const data = await res.json();
 
         if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
-        if (!data.episodes?.length) throw new Error("No episodes returned.");
+        if (!data.episodes?.length) throw new Error("No episodes returned from AniPub.");
 
-        // /api/anime-episodes returns: { episodes: [{ number, src }], title, totalEpisodes }
+        // data.episodes = [{ number: 1, src: "https://www.anipub.xyz/video/2142/sub" }, ...]
         const eps = data.episodes.map((e) => ({ ep: e.number, src: e.src }));
 
         if (!cancelled) {
@@ -104,14 +104,13 @@ export default function AnimeStreamPage({ anime, onBack }) {
         {/* ── LEFT: iframe + Info ───────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
 
-          {/* PLAYER */}
           <div className="relative bg-black rounded-2xl overflow-hidden aspect-video">
 
             {loading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black">
                 <Loader2 className="w-10 h-10 text-indigo-400 animate-spin" />
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                  Finding stream…
+                  Loading stream…
                 </p>
               </div>
             )}
@@ -162,11 +161,6 @@ export default function AnimeStreamPage({ anime, onBack }) {
                   {anime.score && (
                     <span className="flex items-center gap-1 text-xs font-bold text-yellow-400">
                       <Star className="w-3.5 h-3.5 fill-yellow-400" /> {anime.score}
-                    </span>
-                  )}
-                  {anime.year && (
-                    <span className="flex items-center gap-1 text-xs font-bold text-gray-400">
-                      <Calendar className="w-3.5 h-3.5" /> {anime.year}
                     </span>
                   )}
                   {anime.format && (
