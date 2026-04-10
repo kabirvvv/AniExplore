@@ -1,90 +1,93 @@
-// GET /api/anime-episodes?slug={anipub_slug}&malId={mal_id}&titleRomaji={romaji}
-// Tries multiple slug strategies to find the anime on AniPub
+// GET /api/anime-episodes?title={title}
+// Uses confirmed AniPub endpoints:
+//   1. GET https://anipub.xyz/api/find/:name  → { exist, id, ep }
+//   2. GET https://anipub.xyz/v1/api/details/:id → { local: { link, ep[] } }
 
-const ANIPUB = "https://api.anipub.xyz";
+const ANIPUB = "https://anipub.xyz";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=120");
+  res.setHeader("Cache-Control", "no-store");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const { slug, malId, titleRomaji } = req.query;
-  if (!slug) return res.status(400).json({ error: "slug param required" });
+  const { title } = req.query;
+  if (!title?.trim()) return res.status(400).json({ error: "title param required" });
 
-  // Build candidate slugs to try in order
-  const candidates = buildCandidates(slug, titleRomaji);
+  const headers = {
+    Accept: "application/json",
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+  };
 
-  for (const candidate of candidates) {
-    try {
-      const r = await fetch(`${ANIPUB}/anime/api/${candidate}`, {
-        headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" },
-      });
-      if (!r.ok) continue;
-      const json = await r.json();
-      if (!json || json.error) continue;
+  try {
+    // ── Step 1: resolve AniPub ID ─────────────────────────────────────────────
+    // Try exact match first
+    let anipubId = null;
 
-      // Normalize the episode list — AniPub may return different shapes
-      const episodes = normalizeEpisodes(json);
-      if (!episodes.length) continue;
+    const findRes = await fetch(
+      `${ANIPUB}/api/find/${encodeURIComponent(title.trim())}`,
+      { headers }
+    );
 
-      return res.status(200).json({
-        slug: candidate,
-        title: json.Name || json.name || slug,
-        episodes,
-        hasSub: json.hasSub ?? true,
-        hasDub: json.hasDub ?? false,
-      });
-    } catch (_) {
-      continue;
+    if (findRes.ok) {
+      const findData = await findRes.json();
+      if (findData.exist && findData.id) {
+        anipubId = findData.id;
+      }
     }
+
+    // Fallback: quick search → [{ Name, Id, Image, finder }]
+    if (!anipubId) {
+      const searchRes = await fetch(
+        `${ANIPUB}/api/search/${encodeURIComponent(title.trim())}`,
+        { headers }
+      );
+      if (!searchRes.ok) {
+        return res.status(404).json({ error: `"${title}" not found on AniPub.` });
+      }
+      const searchData = await searchRes.json();
+      if (!Array.isArray(searchData) || searchData.length === 0) {
+        return res.status(404).json({ error: `"${title}" not found on AniPub.` });
+      }
+      anipubId = searchData[0].Id;
+    }
+
+    // ── Step 2: get streaming links ───────────────────────────────────────────
+    // GET /v1/api/details/:id → { local: { link: "src=...", ep: [{ link }, ...] } }
+    const detailRes = await fetch(`${ANIPUB}/v1/api/details/${anipubId}`, { headers });
+    if (!detailRes.ok) {
+      return res.status(detailRes.status).json({ error: `Details fetch failed (${detailRes.status})` });
+    }
+
+    const { local } = await detailRes.json();
+    if (!local?.link) {
+      return res.status(404).json({ error: "No streaming links returned from AniPub." });
+    }
+
+    // ── Step 3: build episode list ────────────────────────────────────────────
+    // local.link       = EP 1  (strip "src=" prefix)
+    // local.ep[0].link = EP 2
+    // local.ep[1].link = EP 3 … etc.
+    const stripSrc = (link = "") => link.replace(/^src=/, "").trim();
+
+    const episodes = [
+      { number: 1, src: stripSrc(local.link) },
+      ...(local.ep || []).map((e, i) => ({
+        number: i + 2,
+        src: stripSrc(e.link),
+      })),
+    ];
+
+    return res.status(200).json({
+      anipubId,
+      title: local.name || title,
+      totalEpisodes: episodes.length,
+      episodes,
+    });
+
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
-
-  return res.status(404).json({ error: "Anime not found on AniPub. Try searching directly." });
-}
-
-// Try progressively looser slug variations
-function buildCandidates(slug, titleRomaji) {
-  const candidates = [slug];
-
-  // Try romaji slug as well
-  if (titleRomaji) {
-    const romajiSlug = titleRomaji.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    if (romajiSlug !== slug) candidates.push(romajiSlug);
-  }
-
-  // Strip trailing "-season-1" / "-1st-season" artifacts
-  const withoutSeason = slug
-    .replace(/-\d+(st|nd|rd|th)-season$/, "")
-    .replace(/-season-\d+$/, "")
-    .replace(/-part-\d+$/, "");
-  if (withoutSeason !== slug) candidates.push(withoutSeason);
-
-  // Strip trailing year "-2023"
-  const withoutYear = slug.replace(/-\d{4}$/, "");
-  if (withoutYear !== slug && withoutYear !== withoutSeason) candidates.push(withoutYear);
-
-  return [...new Set(candidates)]; // dedupe
-}
-
-function normalizeEpisodes(json) {
-  // AniPub could return episodes as an array or nested object
-  const raw = json.episodes || json.Episodes || json.episodeList || [];
-  if (Array.isArray(raw)) {
-    return raw.map((ep, i) => ({
-      number: ep.number ?? ep.Number ?? ep.ep ?? i + 1,
-      title:  ep.title  || ep.Title  || ep.name || `Episode ${i + 1}`,
-      thumb:  ep.thumb  || ep.image  || ep.thumbnail || null,
-    }));
-  }
-  // If it's a count (some APIs just return { episodes: 24 })
-  if (typeof raw === "number" && raw > 0) {
-    return Array.from({ length: raw }, (_, i) => ({
-      number: i + 1,
-      title:  `Episode ${i + 1}`,
-      thumb:  null,
-    }));
-  }
-  return [];
 }
