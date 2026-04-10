@@ -39,10 +39,12 @@ async function fetchSeriesById(id) {
         number: i + 2,
         src: stripSrc(e.link),
       })),
-    ];
+    ].filter((e) => e.src); // Bug 2 fix: drop entries with blank/missing link
 
-    // Detect type from the first episode URL
-    const type = getAudioType(episodes[0]?.src || "");
+    if (!episodes.length) return null;
+
+    // Bug 3 fix: scan all episodes for type, not just ep 1 (which may have no src)
+    const type = episodes.reduce((found, e) => found ?? getAudioType(e.src), null);
 
     return { id, name: local.name || "", type, episodes };
   } catch {
@@ -63,7 +65,8 @@ async function searchAllIds(title) {
     );
     if (res.ok) {
       const d = await res.json();
-      if (d.exist && d.id) ids.push(d.id);
+      // Bug 1 fix: parseInt to normalise to number, avoiding string/number mismatch in includes()
+      if (d.exist && d.id) ids.push(parseInt(d.id));
     }
   } catch { /* ignore */ }
 
@@ -77,8 +80,8 @@ async function searchAllIds(title) {
       const d = await res.json();
       if (Array.isArray(d)) {
         for (const item of d) {
-          const id = item.Id || item.id;
-          if (id && !ids.includes(id)) ids.push(id);
+          const id = parseInt(item.Id ?? item.id); // Bug 1 fix: normalise type
+          if (Number.isFinite(id) && !ids.includes(id)) ids.push(id);
         }
       }
     }
@@ -106,7 +109,11 @@ export default async function handler(req, res) {
 
     // ── Step 1: collect candidate IDs ──────────────────────────────────────
     if (anipubId) {
-      candidateIds.push(parseInt(anipubId));
+      const parsedId = parseInt(anipubId);
+      // Bug 4 fix: reject non-numeric anipubId early
+      if (!Number.isFinite(parsedId))
+        return res.status(400).json({ error: "anipubId must be a valid integer." });
+      candidateIds.push(parsedId);
     }
 
     // Always search by title too — this finds the COMPANION series
@@ -120,7 +127,8 @@ export default async function handler(req, res) {
     }
 
     if (!candidateIds.length)
-      return res.status(404).json({ error: `"${title}" not found on AniPub.` });
+      // Bug 5 fix: title may be undefined when only anipubId was supplied
+      return res.status(404).json({ error: `"${searchTitle || anipubId}" not found on AniPub.` });
 
     // ── Step 2: fetch all candidate series in parallel ──────────────────────
     const results = await Promise.all(candidateIds.map(fetchSeriesById));
