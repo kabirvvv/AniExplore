@@ -3,14 +3,15 @@ import {
   ArrowLeft, Star, Calendar, Tv, Layers, Loader2, AlertTriangle, RefreshCw,
 } from "lucide-react";
 
-const ANIPUB = "https://anipub.xyz";
+// ── Correct base URL from the official AniPub SDK ─────────────────────────────
+const ANIPUB = "https://www.anipub.xyz";
 
-// Strip the "src=" prefix AniPub puts on every link value
+const fixImage = (p) =>
+  !p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`;
+
 const extractSrc = (link = "") => link.replace(/^src=/, "");
 
-// Fix relative image paths
-const fixImage = (p) => (!p ? "" : p.startsWith("https://") ? p : `${ANIPUB}/${p}`);
-
+// ── AnimeStreamPage ────────────────────────────────────────────────────────────
 export default function AnimeStreamPage({ anime, onBack }) {
   const [currentEp, setCurrentEp] = useState(1);
   const [allEps,    setAllEps]    = useState([]); // [{ ep: 1, src: "..." }, ...]
@@ -29,35 +30,50 @@ export default function AnimeStreamPage({ anime, onBack }) {
       setAllEps([]);
 
       try {
-        const searchTitle = anime.title_english || anime.title || "";
+        const title = anime.title_english || anime.title || "";
 
-        // Step 1 — Quick search to get AniPub's internal ID
-        // GET /api/search/:name → [{ Name, Id, Image, finder }, ...]
-        const searchRes = await fetch(
-          `${ANIPUB}/api/search/${encodeURIComponent(searchTitle)}`
+        // ── Step 1: /api/find/:name → { exist, id, ep }
+        // Most reliable way to get AniPub's internal ID + episode count
+        const findRes = await fetch(
+          `${ANIPUB}/api/find/${encodeURIComponent(title)}`
         );
-        if (!searchRes.ok) throw new Error(`Search failed (${searchRes.status})`);
+        if (!findRes.ok) throw new Error(`Find failed (${findRes.status})`);
 
-        const results = await searchRes.json();
-        if (!Array.isArray(results) || results.length === 0) {
-          throw new Error(`"${searchTitle}" not found on AniPub.`);
+        let findData = await findRes.json();
+
+        // If exact title not found, fall back to /api/search/:name
+        if (!findData.exist) {
+          console.warn(`[AniPub] Exact match failed for "${title}", trying search…`);
+          const searchRes = await fetch(
+            `${ANIPUB}/api/search/${encodeURIComponent(title)}`
+          );
+          if (!searchRes.ok) throw new Error(`Search failed (${searchRes.status})`);
+          const searchData = await searchRes.json();
+
+          if (!Array.isArray(searchData) || searchData.length === 0) {
+            throw new Error(`"${title}" not found on AniPub.`);
+          }
+
+          // searchData returns [{ Name, Id, Image, finder }]
+          findData = { exist: true, id: searchData[0].Id };
         }
 
-        const anipubId = results[0].Id;
-        if (!anipubId) throw new Error("AniPub search returned no ID.");
+        const anipubId = findData.id;
+        if (!anipubId) throw new Error("Could not resolve AniPub ID.");
 
-        // Step 2 — Fetch streaming links
-        // GET /v1/api/details/:id → { local: { name, link, ep[] } }
+        // ── Step 2: /v1/api/details/:id → { local: { link, ep[] } }
         const detailRes = await fetch(`${ANIPUB}/v1/api/details/${anipubId}`);
-        if (!detailRes.ok) throw new Error(`Details failed (${detailRes.status})`);
+        if (!detailRes.ok) throw new Error(`Stream details failed (${detailRes.status})`);
 
-        const { local } = await detailRes.json();
+        const detailData = await detailRes.json();
+        const local = detailData.local;
+
         if (!local?.link) throw new Error("No streaming links in AniPub response.");
 
-        // Step 3 — Build full episode list exactly per docs:
-        //   local.link          = EP 1
-        //   local.ep[0].link    = EP 2
-        //   local.ep[1].link    = EP 3  ... etc.
+        // ── Step 3: Build episode list per SDK docs:
+        //   local.link       = EP 1
+        //   local.ep[0].link = EP 2
+        //   local.ep[1].link = EP 3 … etc.
         const eps = [
           { ep: 1, src: extractSrc(local.link) },
           ...(local.ep || []).map((e, i) => ({
@@ -92,8 +108,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
 
   const totalEps   = allEps.length;
   const currentSrc = allEps.find((e) => e.ep === currentEp)?.src || "";
-
-  const coverImg =
+  const coverImg   =
     anime.images?.webp?.large_image_url ||
     anime.images?.jpg?.large_image_url  ||
     fixImage(anime.ImagePath);
@@ -130,7 +145,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
           {/* PLAYER AREA */}
           <div className="relative bg-black rounded-2xl overflow-hidden aspect-video">
 
-            {/* Loading state */}
+            {/* Loading */}
             {loading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black">
                 <Loader2 className="w-10 h-10 text-indigo-400 animate-spin" />
@@ -140,7 +155,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
               </div>
             )}
 
-            {/* Error state */}
+            {/* Error */}
             {error && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/90">
                 <div className="text-center px-6">
@@ -157,7 +172,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
               </div>
             )}
 
-            {/* IFRAME — re-mounts on every src change via key */}
+            {/* IFRAME — key forces remount on episode change */}
             {!loading && !error && currentSrc && (
               <iframe
                 key={currentSrc}
