@@ -1,251 +1,26 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState } from "react";
 import {
-  ArrowLeft, Play, Pause, Volume2, VolumeX, Maximize, Minimize,
-  Loader2, AlertTriangle, ChevronLeft, ChevronRight, Tv, Star,
-  Calendar, Layers, RefreshCw,
+  ArrowLeft, Star, Calendar, Tv, Layers,
 } from "lucide-react";
 
-const ANIPUB  = "https://api.anipub.xyz";
-const HLS_CDN = "https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.7/hls.min.js";
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-function fmtTime(s) {
-  if (!isFinite(s) || s < 0) return "0:00";
-  const m = Math.floor(s / 60), ss = Math.floor(s % 60);
-  return `${m}:${ss.toString().padStart(2, "0")}`;
-}
-
-function loadHlsScript(cb) {
-  if (window.Hls) { cb(); return; }
-  const s = document.createElement("script");
-  s.src = HLS_CDN;
-  s.onload  = cb;
-  s.onerror = () => console.error("Failed to load hls.js");
-  document.head.appendChild(s);
-}
+const ANIPUB = "https://api.anipub.xyz";
 
 function toSlug(t = "") {
   return t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-function normalizeSources(json, type) {
-  if (json.sub || json.dub) {
-    const url = type === "dub" ? (json.dub || json.sub) : (json.sub || json.dub);
-    return [{ url, quality: "auto" }];
-  }
-  if (json.sources?.length) {
-    return json.sources.map((s) => ({ url: s.url, quality: s.quality || "auto" }));
-  }
-  const url = json.url || json.stream || json.link || json.streamUrl;
-  if (url) return [{ url, quality: "auto" }];
-  return [];
-}
-
-// ── AnimeStreamPage ────────────────────────────────────────────────────────────
 export default function AnimeStreamPage({ anime, onBack }) {
   const totalEps = anime.episodes || 12;
   const episodes = Array.from({ length: totalEps }, (_, i) => i + 1);
 
-  // State
-  const [currentEp,     setCurrentEp]     = useState(1);
-  const [audioType,     setAudioType]     = useState("sub");
-  const [sources,       setSources]       = useState([]);
-  const [streamLoading, setStreamLoading] = useState(false);
-  const [streamError,   setStreamError]   = useState(null);
+  const [currentEp, setCurrentEp] = useState(1);
+  const [audioType, setAudioType] = useState("sub");
 
-  // Player state
-  const [playing,       setPlaying]       = useState(false);
-  const [currentTime,   setCurrentTime]   = useState(0);
-  const [duration,      setDuration]      = useState(0);
-  const [volume,        setVolume]        = useState(1);
-  const [muted,         setMuted]         = useState(false);
-  const [buffering,     setBuffering]     = useState(false);
-  const [showControls,  setShowControls]  = useState(true);
-  const [isFullscreen,  setIsFullscreen]  = useState(false);
-  const [qualityIdx,    setQualityIdx]    = useState(0);
+  const slug = toSlug(anime.title_english || anime.title || "");
 
-  const videoRef     = useRef(null);
-  const hlsRef       = useRef(null);
-  const wrapperRef   = useRef(null);
-  const controlTimer = useRef(null);
-  const epListRef    = useRef(null);
+  // AniPub embed URL — adjust path if AniPub uses a different embed route
+  const iframeSrc = `${ANIPUB}/anime/embed/${slug}/${currentEp}?type=${audioType}`;
 
-  // ── Fetch stream — CLIENT SIDE, calls AniPub directly ────────────────────────
-  const fetchStream = useCallback(async () => {
-    setStreamLoading(true);
-    setStreamError(null);
-    setSources([]);
-
-    const titleRaw    = anime.title_english || anime.title || "";
-    const titleRomaji = anime.title_romaji  || "";
-
-    const base = toSlug(titleRaw);
-    const stripped = base
-      .replace(/-\d+(st|nd|rd|th)-season$/, "")
-      .replace(/-season-\d+$/, "")
-      .replace(/-part-\d+$/, "")
-      .replace(/-\d{4}$/, "");
-
-    const candidates = [...new Set([
-      base,
-      toSlug(titleRomaji),
-      stripped,
-    ].filter(Boolean))];
-
-    const errors = [];
-
-    for (const candidate of candidates) {
-      try {
-        const url = `${ANIPUB}/anime/api/stream/${candidate}/${currentEp}?type=${audioType}`;
-        console.log("[AnimeStream] Trying:", url);
-
-        const r = await fetch(url, {
-          headers: { Accept: "application/json" },
-        });
-
-        if (!r.ok) {
-          errors.push({ candidate, status: r.status });
-          continue;
-        }
-
-        let json;
-        try { json = await r.json(); } catch (_) {
-          errors.push({ candidate, reason: "invalid JSON" });
-          continue;
-        }
-
-        if (!json || json.error) {
-          errors.push({ candidate, apiError: json?.error || "null response" });
-          continue;
-        }
-
-        const srcs = normalizeSources(json, audioType);
-        if (!srcs.length) {
-          errors.push({ candidate, reason: "no sources", keys: Object.keys(json) });
-          continue;
-        }
-
-        console.log("[AnimeStream] Success:", candidate, srcs);
-        setSources(srcs);
-        setQualityIdx(0);
-        setStreamLoading(false);
-        return;
-      } catch (e) {
-        errors.push({ candidate, exception: e.message });
-      }
-    }
-
-    console.error("[AnimeStream] All candidates failed:", errors);
-    setStreamError("Stream not available. Check the browser console for details.");
-    setStreamLoading(false);
-  }, [currentEp, audioType, anime]);
-
-  useEffect(() => { fetchStream(); }, [fetchStream]);
-
-  // ── Init / swap HLS when source changes ──────────────────────────────────────
-  useEffect(() => {
-    if (!sources.length || !videoRef.current) return;
-    const src = sources[qualityIdx]?.url;
-    if (!src) return;
-
-    const attach = () => {
-      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-      const vid = videoRef.current;
-
-      if (window.Hls?.isSupported()) {
-        const hls = new window.Hls({ enableWorker: true, lowLatencyMode: false });
-        hls.loadSource(src);
-        hls.attachMedia(vid);
-        hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-          vid.play().catch(() => {});
-        });
-        hls.on(window.Hls.Events.ERROR, (_, d) => {
-          if (d.fatal) setStreamError("Playback error — try another quality or reload.");
-        });
-        hlsRef.current = hls;
-      } else if (vid.canPlayType("application/vnd.apple.mpegurl")) {
-        vid.src = src;
-        vid.play().catch(() => {});
-      } else {
-        setStreamError("HLS not supported in this browser.");
-      }
-    };
-
-    loadHlsScript(attach);
-    return () => {
-      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-    };
-  }, [sources, qualityIdx]);
-
-  // ── Scroll active episode into view ──────────────────────────────────────────
-  useEffect(() => {
-    if (!epListRef.current) return;
-    const active = epListRef.current.querySelector("[data-active='true']");
-    active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [currentEp]);
-
-  // ── Video event handlers ──────────────────────────────────────────────────────
-  const onPlay           = () => setPlaying(true);
-  const onPause          = () => setPlaying(false);
-  const onTimeUpdate     = () => setCurrentTime(videoRef.current?.currentTime || 0);
-  const onDurationChange = () => setDuration(videoRef.current?.duration || 0);
-  const onWaiting        = () => setBuffering(true);
-  const onCanPlay        = () => setBuffering(false);
-  const onFullChange     = () => setIsFullscreen(!!document.fullscreenElement);
-
-  useEffect(() => {
-    document.addEventListener("fullscreenchange", onFullChange);
-    return () => document.removeEventListener("fullscreenchange", onFullChange);
-  }, []);
-
-  // ── Controls visibility ───────────────────────────────────────────────────────
-  const showCtrl = () => {
-    setShowControls(true);
-    clearTimeout(controlTimer.current);
-    controlTimer.current = setTimeout(() => playing && setShowControls(false), 3000);
-  };
-
-  // ── Player actions ────────────────────────────────────────────────────────────
-  const togglePlay = () => {
-    if (!videoRef.current) return;
-    playing ? videoRef.current.pause() : videoRef.current.play();
-  };
-
-  const seek = (e) => {
-    if (!videoRef.current || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    videoRef.current.currentTime = pct * duration;
-  };
-
-  const changeVolume = (e) => {
-    const v = parseFloat(e.target.value);
-    setVolume(v);
-    if (videoRef.current) videoRef.current.volume = v;
-    setMuted(v === 0);
-  };
-
-  const toggleMute = () => {
-    if (!videoRef.current) return;
-    const next = !muted;
-    videoRef.current.muted = next;
-    setMuted(next);
-  };
-
-  const toggleFullscreen = () => {
-    if (!wrapperRef.current) return;
-    if (!document.fullscreenElement) wrapperRef.current.requestFullscreen();
-    else document.exitFullscreen();
-  };
-
-  const goEp = (n) => {
-    if (n < 1 || n > totalEps) return;
-    setCurrentEp(n);
-  };
-
-  const progress = duration ? (currentTime / duration) * 100 : 0;
-
-  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 font-sans">
 
@@ -287,140 +62,20 @@ export default function AnimeStreamPage({ anime, onBack }) {
 
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 flex flex-col lg:flex-row gap-6">
 
-        {/* ── LEFT: Player + Info ───────────────────────────────────────────── */}
+        {/* ── LEFT: iframe + Info ───────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
 
-          {/* PLAYER WRAPPER */}
-          <div
-            ref={wrapperRef}
-            onMouseMove={showCtrl}
-            onMouseLeave={() => playing && setShowControls(false)}
-            className="relative bg-black rounded-2xl overflow-hidden aspect-video group"
-          >
-            <video
-              ref={videoRef}
-              className="w-full h-full object-contain"
-              onPlay={onPlay}
-              onPause={onPause}
-              onTimeUpdate={onTimeUpdate}
-              onDurationChange={onDurationChange}
-              onWaiting={onWaiting}
-              onCanPlay={onCanPlay}
-              onClick={togglePlay}
-              playsInline
+          {/* IFRAME PLAYER */}
+          <div className="relative bg-black rounded-2xl overflow-hidden aspect-video">
+            <iframe
+              key={`${slug}-${currentEp}-${audioType}`}
+              src={iframeSrc}
+              className="w-full h-full"
+              allowFullScreen
+              allow="autoplay; fullscreen; encrypted-media"
+              frameBorder="0"
+              scrolling="no"
             />
-
-            {/* Loading overlay */}
-            {(streamLoading || buffering) && !streamError && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                <div className="flex flex-col items-center gap-3">
-                  <Loader2 className="w-10 h-10 text-indigo-400 animate-spin" />
-                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                    {streamLoading ? "Loading stream…" : "Buffering…"}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Error overlay */}
-            {streamError && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-                <div className="text-center px-6">
-                  <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-                  <p className="text-sm font-bold text-red-400 mb-1">Stream Error</p>
-                  <p className="text-xs text-gray-500 mb-4 max-w-xs">{streamError}</p>
-                  <button
-                    onClick={fetchStream}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-black uppercase tracking-widest transition mx-auto"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" /> Retry
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Big play button */}
-            {!streamLoading && !streamError && !buffering && (
-              <div
-                onClick={togglePlay}
-                className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 cursor-pointer ${
-                  showControls && !playing ? "opacity-100" : "opacity-0 pointer-events-none"
-                }`}
-              >
-                <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur flex items-center justify-center border border-white/20">
-                  <Play className="w-7 h-7 text-white ml-1" />
-                </div>
-              </div>
-            )}
-
-            {/* CONTROLS BAR */}
-            <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-4 pt-10 transition-opacity duration-300 ${showControls || !playing ? "opacity-100" : "opacity-0"}`}>
-              {/* Progress bar */}
-              <div
-                className="relative h-1.5 bg-white/20 rounded-full mb-3 cursor-pointer group/seek"
-                onClick={seek}
-              >
-                <div
-                  className="absolute top-0 left-0 h-full bg-indigo-500 rounded-full transition-all"
-                  style={{ width: `${progress}%` }}
-                />
-                <div
-                  className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover/seek:opacity-100 transition"
-                  style={{ left: `calc(${progress}% - 6px)` }}
-                />
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button onClick={togglePlay} className="text-white hover:text-indigo-300 transition">
-                  {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                </button>
-
-                <button onClick={() => goEp(currentEp - 1)} disabled={currentEp <= 1}
-                  className="text-gray-400 hover:text-white disabled:opacity-30 transition">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button onClick={() => goEp(currentEp + 1)} disabled={currentEp >= totalEps}
-                  className="text-gray-400 hover:text-white disabled:opacity-30 transition">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-
-                <span className="text-xs font-mono text-gray-300 tabular-nums">
-                  {fmtTime(currentTime)} / {fmtTime(duration)}
-                </span>
-
-                <div className="flex-1" />
-
-                {sources.length > 1 && (
-                  <select
-                    value={qualityIdx}
-                    onChange={(e) => setQualityIdx(Number(e.target.value))}
-                    className="bg-white/10 border border-white/20 text-white text-[11px] font-bold rounded-lg px-2 py-1 focus:outline-none"
-                  >
-                    {sources.map((s, i) => (
-                      <option key={i} value={i} className="bg-gray-900">
-                        {s.quality || `Source ${i + 1}`}
-                      </option>
-                    ))}
-                  </select>
-                )}
-
-                <div className="flex items-center gap-1.5">
-                  <button onClick={toggleMute} className="text-gray-300 hover:text-white transition">
-                    {muted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                  </button>
-                  <input
-                    type="range" min="0" max="1" step="0.05"
-                    value={muted ? 0 : volume}
-                    onChange={changeVolume}
-                    className="w-16 accent-indigo-500 cursor-pointer"
-                  />
-                </div>
-
-                <button onClick={toggleFullscreen} className="text-gray-300 hover:text-white transition">
-                  {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* ANIME INFO */}
@@ -429,7 +84,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
               <img
                 src={anime.images?.webp?.large_image_url || anime.images?.jpg?.large_image_url}
                 alt={anime.title}
-                className="w-16 h-22 rounded-xl object-cover flex-shrink-0"
+                className="w-16 rounded-xl object-cover flex-shrink-0"
               />
               <div className="flex-1 min-w-0">
                 <h2 className="font-black text-white text-lg tracking-tight">{anime.title}</h2>
@@ -485,15 +140,10 @@ export default function AnimeStreamPage({ anime, onBack }) {
                 {totalEps} total
               </span>
             </div>
-            <div
-              ref={epListRef}
-              className="overflow-y-auto"
-              style={{ maxHeight: "calc(100vh - 160px)" }}
-            >
+            <div className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 160px)" }}>
               {episodes.map((ep) => (
                 <button
                   key={ep}
-                  data-active={ep === currentEp}
                   onClick={() => setCurrentEp(ep)}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-left transition border-b border-white/5 last:border-0 ${
                     ep === currentEp
