@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const { title } = req.query;
+  const { title, titleRomaji } = req.query;
   if (!title?.trim()) return res.status(400).json({ error: "title param required" });
 
   const headers = {
@@ -23,35 +23,30 @@ export default async function handler(req, res) {
 
   try {
     // ── Step 1: resolve AniPub ID ─────────────────────────────────────────────
-    // Try exact match first
+    // Try all title candidates with /api/find/ first (exact, fast)
+    // then fall back to /api/search/ (fuzzy)
     let anipubId = null;
+    const candidates = [title.trim(), titleRomaji?.trim()].filter(Boolean);
 
-    const findRes = await fetch(
-      `${ANIPUB}/api/find/${encodeURIComponent(title.trim())}`,
-      { headers }
-    );
-
-    if (findRes.ok) {
-      const findData = await findRes.json();
-      if (findData.exist && findData.id) {
-        anipubId = findData.id;
+    for (const t of candidates) {
+      const r = await fetch(`${ANIPUB}/api/find/${encodeURIComponent(t)}`, { headers });
+      if (r.ok) {
+        const d = await r.json();
+        if (d.exist && d.id) { anipubId = d.id; break; }
       }
     }
 
-    // Fallback: quick search → [{ Name, Id, Image, finder }]
+    // Fallback: /api/search/ → [{ Name, Id, Image, finder }]
     if (!anipubId) {
-      const searchRes = await fetch(
-        `${ANIPUB}/api/search/${encodeURIComponent(title.trim())}`,
-        { headers }
-      );
-      if (!searchRes.ok) {
+      for (const t of candidates) {
+        const r = await fetch(`${ANIPUB}/api/search/${encodeURIComponent(t)}`, { headers });
+        if (!r.ok) continue;
+        const d = await r.json();
+        if (Array.isArray(d) && d.length > 0) { anipubId = d[0].Id; break; }
+      }
+      if (!anipubId) {
         return res.status(404).json({ error: `"${title}" not found on AniPub.` });
       }
-      const searchData = await searchRes.json();
-      if (!Array.isArray(searchData) || searchData.length === 0) {
-        return res.status(404).json({ error: `"${title}" not found on AniPub.` });
-      }
-      anipubId = searchData[0].Id;
     }
 
     // ── Step 2: get streaming links ───────────────────────────────────────────
