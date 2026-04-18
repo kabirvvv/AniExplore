@@ -1,3 +1,6 @@
+// POST /api/grok  { message: string, history: Array }
+// FIX #6: Added input length limits and history cap to prevent
+//         token exhaustion / DoS attacks.
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -7,34 +10,39 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed." });
 
   try {
-    const body = req.body || {};
+    const body   = req.body || {};
     const parsed = typeof body === "string" ? JSON.parse(body) : body;
+
+    // FIX #6: Validate and cap inputs
     const message = parsed.message;
-    const history = parsed.history || [];
+    if (!message || typeof message !== "string")
+      return res.status(400).json({ error: "message is required." });
+    if (message.trim().length === 0)
+      return res.status(400).json({ error: "message cannot be empty." });
+    if (message.length > 2000)
+      return res.status(400).json({ error: "Message too long (max 2000 chars)." });
 
-    if (!message) return res.status(400).json({ error: "message is required." });
+    // FIX #6: Cap history to last 20 turns to prevent oversized requests
+    const rawHistory = Array.isArray(parsed.history) ? parsed.history : [];
+    const history = rawHistory.slice(-20);
 
-    // Switched from XAI_API_KEY to GROQ_API_KEY
+    // FIX #7: Correct env var name is GROQ_API_KEY (README said GROK_API_KEY — wrong)
     const key = process.env.GROQ_API_KEY;
-    if (!key) return res.status(500).json({ error: "GROQ_API_KEY not set." });
+    if (!key) return res.status(500).json({ error: "GROQ_API_KEY not configured." });
 
-    // Build conversation history for multi-turn memory
     const messages = [
       {
         role: "system",
         content:
           "You are a professional Anime Consultant named AniExplore AI. Keep responses concise and helpful. When recommending anime, mention titles, genres, and why they match. Use **bold** for anime titles.",
       },
-      // Include previous messages (skip the hardcoded greeting at index 0)
       ...history.slice(1).map((m) => ({
         role: m.role === "user" ? "user" : "assistant",
-        content: m.text,
+        content: String(m.text || "").slice(0, 4000), // cap each history message too
       })),
-      // Add the new user message
       { role: "user", content: message },
     ];
 
-    // Groq uses an OpenAI-compatible endpoint, so only the URL and model name change
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -42,7 +50,7 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile", // Groq-hosted Llama 3.3 70B
+        model:      "llama-3.3-70b-versatile",
         messages,
         max_tokens: 800,
       }),
@@ -62,6 +70,7 @@ export default async function handler(req, res) {
 
     const reply = data.choices?.[0]?.message?.content || "No response from AI.";
     return res.status(200).json({ reply });
+
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
