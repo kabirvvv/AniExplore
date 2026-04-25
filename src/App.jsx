@@ -32,8 +32,17 @@ const ALL_GENRES = Object.keys(GENRE_MAP).sort();
 
 // ── SEARCH SUGGESTIONS ────────────────────────────────────────────────────────
 
+// AbortController so rapid typing cancels in-flight requests (prevents stale
+// suggestions appearing and avoids hitting AniList rate limits).
+let _suggestController = null;
+
 async function fetchSuggestions(query) {
   if (!query || query.length < 2) return [];
+
+  // Cancel any pending suggestion request
+  if (_suggestController) _suggestController.abort();
+  _suggestController = new AbortController();
+
   const gqlQuery = `
     query ($search: String) {
       Page(perPage: 10) {
@@ -47,19 +56,25 @@ async function fetchSuggestions(query) {
       }
     }
   `;
-  const res = await fetch("https://graphql.anilist.co", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: gqlQuery, variables: { search: query } }),
-  });
-  const json = await res.json();
-  return (json.data?.Page?.media || []).map((m) => ({
-    id: m.id,
-    title: m.title.english || m.title.romaji,
-    cover: m.coverImage.medium,
-    score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
-    format: m.format,
-  }));
+  try {
+    const res = await fetch("https://graphql.anilist.co", {
+      method: "POST",
+      signal: _suggestController.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: gqlQuery, variables: { search: query } }),
+    });
+    const json = await res.json();
+    return (json.data?.Page?.media || []).map((m) => ({
+      id: m.id,
+      title: m.title.english || m.title.romaji,
+      cover: m.coverImage.medium,
+      score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
+      format: m.format,
+    }));
+  } catch (e) {
+    if (e.name === "AbortError") return []; // silently drop cancelled requests
+    throw e;
+  }
 }
 
 // ── MANGA CARD ────────────────────────────────────────────────────────────────
@@ -680,7 +695,7 @@ export default function App() {
                 <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3 sm:gap-5 md:gap-6">
                   {animeList.map((anime) => (
                     <div
-                      key={anime.anilist_id}
+                      key={anime.anipub_id ?? anime.title}
                       onClick={() => setSelectedAnime(anime)}
                       className="group cursor-pointer"
                     >
