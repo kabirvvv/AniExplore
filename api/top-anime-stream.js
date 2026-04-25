@@ -1,6 +1,7 @@
 // GET /api/top-anime-stream?page=1&limit=24
 // Fetches top-rated ANIME from AniPub directly (no AniList).
 // AniPub response includes _id so anime-episodes never needs title matching.
+// Fixes: fetch timeout, corrected hasNextPage logic.
 
 const ANIPUB = "https://anipub.xyz";
 
@@ -10,7 +11,7 @@ const fixImage = (p) =>
 function normalizeAnipub(item) {
   const img = fixImage(item.ImagePath || item.Image || "");
   return {
-    anipub_id:         item._id || item.Id,           // ← used directly in anime-episodes
+    anipub_id:         item._id || item.Id,
     anipub_finder:     item.finder || null,
     title:             item.Name,
     title_english:     item.Name,
@@ -39,28 +40,26 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=60");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const page = parseInt(req.query.page) || 1;
+  const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 24, 1), 50);
 
   try {
-    // GET /api/findbyrating?page=N → { currentPage, AniData: [...] }
     const r = await fetch(`${ANIPUB}/api/findbyrating?page=${page}`, {
+      signal:  AbortSignal.timeout(8000),
       headers: { Accept: "application/json", "Cache-Control": "no-cache" },
     });
     if (!r.ok) return res.status(r.status).json({ error: `AniPub error: ${r.status}` });
 
-    const json = await r.json();
+    const json  = await r.json();
     const items = json.AniData || json.data || [];
-
-    // Fetch full info for each item to get epCount, Genres, Studios etc.
-    // AniPub /api/findbyrating only returns minimal fields — enrich with /api/info/:id
-    // But to avoid 24 extra requests we return what we have and let the detail page fetch more.
-    const data = items.map(normalizeAnipub);
+    const data  = items.map(normalizeAnipub);
 
     return res.status(200).json({
       data,
       pagination: {
         currentPage: json.currentPage || page,
-        hasNextPage: data.length > 0,
+        // Fixed: hasNextPage is true only when we got a full page of results
+        hasNextPage: data.length >= limit,
         perPage:     data.length,
       },
     });
