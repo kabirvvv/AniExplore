@@ -294,6 +294,8 @@ export default function AnimeStreamPage({ anime, onBack }) {
   }, []);
 
   // TV keyboard navigation
+  // Fixed: dependency array added so the effect only re-runs when the navigable
+  // episodes actually change — prevents a new listener being added every render.
   useEffect(() => {
     if (!isTV) return;
     const handler = (e) => {
@@ -302,7 +304,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  });
+  }, [isTV, prevEp, nextEp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // FIX #8: Stable dependency — key on id or title string, not the object reference
   const animeKey = anime?.anipub_id ? String(anime.anipub_id) : (anime?.title || "");
@@ -437,7 +439,7 @@ export default function AnimeStreamPage({ anime, onBack }) {
           style={{ width:"100%",height:"100%",border:0,display:"block" }}
           allowFullScreen
           allow="autoplay; fullscreen; encrypted-media"
-          sandbox="allow-scripts allow-same-origin allow-presentation allow-fullscreen"
+          sandbox="allow-scripts allow-presentation allow-fullscreen"
           scrolling="no"
           title={`Episode ${currentEp}`}
         />
