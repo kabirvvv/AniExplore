@@ -1,3 +1,8 @@
+// GET /api/anime?q=search&genres=1,2&limit=24&page=1
+// Manga search/browse via AniList GraphQL.
+// Fixes: clamped page/limit params (unbounded values caused slow AniList scans),
+//        added fetch timeout.
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
@@ -5,7 +10,9 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=60");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const { q, genres, limit = 24, page = 1 } = req.query;
+  const { q, genres } = req.query;
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 24, 1), 50);
+  const page  = Math.min(Math.max(parseInt(req.query.page)  || 1,  1), 500);
 
   const GENRE_MAP = {
     "1": "Action", "2": "Adventure", "4": "Comedy", "5": "Avant Garde",
@@ -24,8 +31,6 @@ export default async function handler(req, res) {
   const genreList = genres
     ? genres.split(",").map((g) => GENRE_MAP[g]).filter(Boolean)
     : [];
-
-  const genreFilter = genreList;
 
   const mediaFields = `
     id
@@ -54,18 +59,14 @@ export default async function handler(req, res) {
         }
       }
     `;
-    variables = {
-      search: q.trim(),
-      perPage: parseInt(limit),
-      page: parseInt(page),
-    };
-  } else if (genreFilter.length > 0) {
+    variables = { search: q.trim(), perPage: limit, page };
+  } else if (genreList.length > 0) {
     query = `
       query ($genres: [String], $perPage: Int, $page: Int) {
         Page(page: $page, perPage: $perPage) {
           pageInfo { total currentPage hasNextPage }
           media(
-            ${genreFilter.length > 0 ? "genre_in: $genres," : ""}
+            genre_in: $genres,
             type: MANGA,
             isAdult: false,
             sort: [SCORE_DESC]
@@ -75,53 +76,48 @@ export default async function handler(req, res) {
         }
       }
     `;
-    variables = {
-      genres: genreFilter.length > 0 ? genreFilter : undefined,
-      perPage: parseInt(limit),
-      page: parseInt(page),
-    };
+    variables = { genres: genreList, perPage: limit, page };
   } else {
     return res.status(400).json({ error: "q or genres param required" });
   }
 
   try {
     const response = await fetch("https://graphql.anilist.co", {
-      method: "POST",
+      method:  "POST",
+      signal:  AbortSignal.timeout(10_000),
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query, variables }),
+      body:    JSON.stringify({ query, variables }),
     });
 
-    if (!response.ok) {
+    if (!response.ok)
       return res.status(response.status).json({ error: `AniList error: ${response.status}` });
-    }
 
     const json = await response.json();
-    if (json.errors) {
+    if (json.errors)
       return res.status(400).json({ error: json.errors[0]?.message || "AniList query error" });
-    }
 
     const pageInfo = json.data?.Page?.pageInfo || {};
-    const media    = json.data?.Page?.media || [];
+    const media    = json.data?.Page?.media    || [];
 
     const data = media.map((m) => ({
-      mal_id: m.idMal,
-      anilist_id: m.id,
-      title: m.title.english || m.title.romaji,
-      title_english: m.title.english,
-      title_romaji: m.title.romaji,
+      mal_id:         m.idMal,
+      anilist_id:     m.id,
+      title:          m.title.english || m.title.romaji,
+      title_english:  m.title.english,
+      title_romaji:   m.title.romaji,
       title_japanese: m.title.native,
       images: {
         webp: {
           large_image_url: m.coverImage.extraLarge || m.coverImage.large,
-          image_url: m.coverImage.large,
+          image_url:       m.coverImage.large,
         },
         jpg: { large_image_url: m.coverImage.extraLarge || m.coverImage.large },
       },
-      score: m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
-      genres: (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
+      score:    m.averageScore ? (m.averageScore / 10).toFixed(1) : null,
+      genres:   (m.genres || []).map((g, i) => ({ mal_id: i, name: g })),
       chapters: m.chapters,
-      status: m.status,
-      format: m.format,
+      status:   m.status,
+      format:   m.format,
       synopsis: m.description,
       is_adult: m.isAdult,
     }));
@@ -129,10 +125,10 @@ export default async function handler(req, res) {
     return res.status(200).json({
       data,
       pagination: {
-        total: pageInfo.total || data.length,
-        currentPage: pageInfo.currentPage || parseInt(page),
+        total:       pageInfo.total || data.length,
+        currentPage: pageInfo.currentPage || page,
         hasNextPage: pageInfo.hasNextPage ?? false,
-        perPage: parseInt(limit),
+        perPage:     limit,
       },
     });
   } catch (err) {
