@@ -1,10 +1,10 @@
 // GET /api/anime-episodes?anipubId=10&title=Naruto&titleRomaji=Naruto
 //
-// FIX #1: Always search by title alongside anipubId to find the companion
-//         series (dub if sub was provided, sub if dub was provided).
-// FIX #2: Replaced fragile URL-sniffing getAudioType() with name-based
-//         detection — AniPub consistently names dub series with "(Dub)"
-//         or "Dubbed" in the title. URL /sub /dub is unreliable.
+// SUB/DUB FIX: Search ALL title variants (title + titleRomaji) so the
+// companion series is always found. Strip dub qualifiers before searching
+// so clicking a "Naruto (Dub)" card still finds the "Naruto" sub series.
+// Fetch timeouts added to prevent Vercel function hangs.
+// Promise.all capped at 8 IDs to avoid AniPub rate-limiting.
 
 const ANIPUB = "https://anipub.xyz";
 
@@ -18,20 +18,26 @@ const FETCH_HEADERS = {
 
 const stripSrc = (link = "") => link.replace(/^src=/, "").trim();
 
-// FIX #2: Detect audio type from the series NAME, not the episode URL.
+// Strip "(Dub)", "Dubbed", "(English Dub)" etc. from the END of a title
+// so we can search for the sub companion of a dub card.
+function stripDubSuffix(name = "") {
+  return name
+    .replace(/\s*[\[(]?\s*(dub|dubbed|english[\s-]dub)\s*[\])]?\s*$/i, "")
+    .trim();
+}
+
+// Detect audio type from the series NAME, not the episode URL.
 // AniPub consistently appends "(Dub)", "Dubbed", or "(English Dub)" to dub series.
 function detectTypeFromName(name = "") {
   const n = name.toLowerCase();
   if (
     n.includes("(dub)") ||
-    n.includes(" dub)") ||
     n.includes("dubbed") ||
     n.includes("(english dub)") ||
     n.endsWith(" dub")
   ) {
     return "dub";
   }
-  // Everything else is sub (original audio)
   return "sub";
 }
 
@@ -41,6 +47,7 @@ async function fetchSeriesById(id) {
   try {
     const res = await fetch(`${ANIPUB}/v1/api/details/${id}`, {
       headers: FETCH_HEADERS,
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
 
@@ -57,47 +64,61 @@ async function fetchSeriesById(id) {
 
     if (!episodes.length) return null;
 
-    // FIX #2: Type from series name, not URL
     const type = detectTypeFromName(local.name || "");
-
     return { id, name: local.name || "", type, episodes };
   } catch {
     return null;
   }
 }
 
-// Search AniPub for a title — collects ALL matching IDs (sub + dub are separate entries).
-async function searchAllIds(title) {
-  const ids = [];
+// Search AniPub for an array of title strings — collects ALL matching IDs.
+// For each title we also search the dub-stripped version so that clicking
+// a "(Dub)" card still finds its sub companion and vice versa.
+async function searchAllIds(titles) {
+  const seen = new Set();
+  const ids  = [];
 
-  // Exact match first (/api/find/)
-  try {
-    const res = await fetch(
-      `${ANIPUB}/api/find/${encodeURIComponent(title.trim())}`,
-      { headers: FETCH_HEADERS }
-    );
-    if (res.ok) {
-      const d = await res.json();
-      if (d.exist && d.id) ids.push(parseInt(d.id));
-    }
-  } catch { /* ignore */ }
+  for (const rawTitle of titles) {
+    if (!rawTitle?.trim()) continue;
+    const clean    = rawTitle.trim();
+    const stripped = stripDubSuffix(clean);
+    // Search both the original and the stripped version (deduped)
+    const toSearch = [clean, ...(stripped !== clean ? [stripped] : [])];
 
-  // Fuzzy search — collects ALL results including "(Dub)" companion
-  try {
-    const res = await fetch(
-      `${ANIPUB}/api/search/${encodeURIComponent(title.trim())}`,
-      { headers: FETCH_HEADERS }
-    );
-    if (res.ok) {
-      const d = await res.json();
-      if (Array.isArray(d)) {
-        for (const item of d) {
-          const id = parseInt(item.Id ?? item.id);
-          if (Number.isFinite(id) && !ids.includes(id)) ids.push(id);
+    for (const t of toSearch) {
+      // Exact match (/api/find/) — fast, high precision
+      try {
+        const res = await fetch(
+          `${ANIPUB}/api/find/${encodeURIComponent(t)}`,
+          { headers: FETCH_HEADERS, signal: AbortSignal.timeout(6000) }
+        );
+        if (res.ok) {
+          const d = await res.json();
+          if (d.exist && d.id) {
+            const id = parseInt(d.id);
+            if (Number.isFinite(id) && !seen.has(id)) { seen.add(id); ids.push(id); }
+          }
         }
-      }
+      } catch { /* ignore */ }
+
+      // Fuzzy search (/api/search/) — catches companion sub/dub entries
+      try {
+        const res = await fetch(
+          `${ANIPUB}/api/search/${encodeURIComponent(t)}`,
+          { headers: FETCH_HEADERS, signal: AbortSignal.timeout(6000) }
+        );
+        if (res.ok) {
+          const d = await res.json();
+          if (Array.isArray(d)) {
+            for (const item of d) {
+              const id = parseInt(item.Id ?? item.id);
+              if (Number.isFinite(id) && !seen.has(id)) { seen.add(id); ids.push(id); }
+            }
+          }
+        }
+      } catch { /* ignore */ }
     }
-  } catch { /* ignore */ }
+  }
 
   return ids;
 }
@@ -113,13 +134,14 @@ export default async function handler(req, res) {
 
   const { anipubId, title, titleRomaji } = req.query;
 
-  if (!anipubId && !title?.trim())
+  if (!anipubId && !title?.trim() && !titleRomaji?.trim())
     return res.status(400).json({ error: "anipubId or title param required" });
 
   try {
     let candidateIds = [];
 
     // ── Step 1: collect candidate IDs ────────────────────────────────────────
+
     if (anipubId) {
       const parsedId = parseInt(anipubId);
       if (!Number.isFinite(parsedId))
@@ -127,23 +149,23 @@ export default async function handler(req, res) {
       candidateIds.push(parsedId);
     }
 
-    // FIX #1: ALWAYS search by title too — even when anipubId is provided.
-    // This finds the COMPANION series (dub series if sub ID was given, and vice versa).
-    // Previously this branch was skipped when anipubId was present, which is why
-    // the toggle always showed 0 episodes on one side.
-    const searchTitle = title?.trim() || titleRomaji?.trim();
-    if (searchTitle) {
-      const found = await searchAllIds(searchTitle);
+    // Search ALL title variants (title + titleRomaji) — not just one.
+    // This is critical: searching both finds sub AND dub companions reliably.
+    const searchTitles = [title?.trim(), titleRomaji?.trim()].filter(Boolean);
+    if (searchTitles.length > 0) {
+      const found = await searchAllIds(searchTitles);
       for (const id of found) {
         if (!candidateIds.includes(id)) candidateIds.push(id);
       }
     }
 
     if (!candidateIds.length)
-      return res.status(404).json({ error: `"${searchTitle || anipubId}" not found on AniPub.` });
+      return res.status(404).json({ error: `"${title || titleRomaji || anipubId}" not found on AniPub.` });
 
-    // ── Step 2: fetch all candidate series in parallel ────────────────────────
-    const results = await Promise.all(candidateIds.map(fetchSeriesById));
+    // ── Step 2: fetch all candidate series in parallel (capped at 8) ─────────
+    // Cap prevents hammering AniPub and avoids Vercel 10s timeout.
+    const cappedIds = candidateIds.slice(0, 8);
+    const results   = await Promise.all(cappedIds.map(fetchSeriesById));
     const validSeries = results.filter(Boolean);
 
     if (!validSeries.length)
@@ -154,7 +176,7 @@ export default async function handler(req, res) {
     const byType = { sub: null, dub: null };
 
     for (const series of validSeries) {
-      const t = series.type; // always "sub" or "dub" now (no null)
+      const t = series.type; // "sub" | "dub"
       if (!byType[t] || series.episodes.length > byType[t].episodes.length) {
         byType[t] = series;
       }
@@ -167,11 +189,7 @@ export default async function handler(req, res) {
       const series = byType[type];
       if (!series) continue;
       for (const ep of series.episodes) {
-        allEpisodes.push({
-          number:    ep.number,
-          src:       ep.src,
-          audioType: type,
-        });
+        allEpisodes.push({ number: ep.number, src: ep.src, audioType: type });
       }
     }
 
