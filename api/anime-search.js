@@ -63,8 +63,9 @@ export default async function handler(req, res) {
       data,
       pagination: {
         currentPage: json.currentPage || page,
-        // Fixed: hasNextPage true only when we received a full page
-        hasNextPage: data.length >= limit,
+        // AniPub controls its own page size so we can't compare against limit.
+        // Show Load More as long as the page returned results.
+        hasNextPage: data.length > 0,
         perPage:     data.length,
       },
     });
