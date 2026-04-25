@@ -271,6 +271,10 @@ export default function AnimeStreamPage({ anime, onBack }) {
   const epListRef  = useRef(null);
   const playerRef  = useRef(null);
   const drawerRef  = useRef(null);
+  // Refs so the TV keyboard handler always sees the latest prev/next ep
+  // without needing them in the useEffect dependency array (they're declared later).
+  const prevEpRef  = useRef(null);
+  const nextEpRef  = useRef(null);
 
   // Inject fonts once
   useEffect(() => {
@@ -294,17 +298,18 @@ export default function AnimeStreamPage({ anime, onBack }) {
   }, []);
 
   // TV keyboard navigation
-  // Fixed: dependency array added so the effect only re-runs when the navigable
-  // episodes actually change — prevents a new listener being added every render.
+  // Uses refs for prevEp/nextEp so the handler always reads the latest values
+  // without those variables needing to be in the dependency array
+  // (they're declared later in the function body).
   useEffect(() => {
     if (!isTV) return;
     const handler = (e) => {
-      if (e.key === "ArrowLeft"  && prevEp != null) setCurrentEp(prevEp);
-      if (e.key === "ArrowRight" && nextEp != null) setCurrentEp(nextEp);
+      if (e.key === "ArrowLeft"  && prevEpRef.current != null) setCurrentEp(prevEpRef.current);
+      if (e.key === "ArrowRight" && nextEpRef.current != null) setCurrentEp(nextEpRef.current);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isTV, prevEp, nextEp]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isTV]);
 
   // FIX #8: Stable dependency — key on id or title string, not the object reference
   const animeKey = anime?.anipub_id ? String(anime.anipub_id) : (anime?.title || "");
@@ -343,6 +348,9 @@ export default function AnimeStreamPage({ anime, onBack }) {
   const currentIdx   = filteredEps.findIndex((e) => e.ep === currentEp);
   const prevEp       = currentIdx > 0 ? filteredEps[currentIdx - 1]?.ep : null;
   const nextEp       = currentIdx < filteredEps.length - 1 ? filteredEps[currentIdx + 1]?.ep : null;
+  // Keep refs in sync so the TV keyboard handler always has current values
+  prevEpRef.current = prevEp;
+  nextEpRef.current = nextEp;
 
   // Reset to first episode of new audio type when toggling
   useEffect(() => {
