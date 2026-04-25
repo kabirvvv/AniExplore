@@ -1,15 +1,15 @@
 # 🎌 AniExplore
 
-Anime discovery terminal powered by [Jikan API](https://jikan.moe/) and [xAI Grok-2](https://x.ai/). Built with Vite + React + Tailwind. Deployed as a single project on Vercel using serverless functions.
+Anime & Manga discovery app powered by [AniPub](https://anipub.xyz/) (anime streaming), [AniList](https://anilist.co/) (manga), and [Groq](https://groq.com/) (AI chat). Built with Vite + React + Tailwind. Deployed as a single project on Vercel using serverless functions.
 
 ## Project Structure
 
 ```
 aniexplore/
 ├── api/                   ← Vercel Serverless Functions (your backend)
-│   ├── anime.js           ← GET  /api/anime      — Jikan search proxy
-│   ├── top-anime.js       ← GET  /api/top-anime  — Jikan top anime proxy
-│   └── grok.js            ← POST /api/grok       — xAI Grok-2 proxy (key stays here)
+│   ├── anime.js           ← GET  /api/anime      — AniList manga search proxy
+│   ├── top-anime.js       ← GET  /api/top-anime  — AniList top manga proxy
+│   └── grok.js            ← POST /api/grok       — Groq LLaMA proxy (key stays server-side)
 ├── src/
 │   ├── App.jsx            ← Main React app
 │   ├── main.jsx
@@ -52,7 +52,8 @@ git push -u origin main
 
 | Name | Value |
 |------|-------|
-| `GROK_API_KEY` | `xai-your-key-here` |
+| `GROQ_API_KEY` | `your-groq-api-key-here` |
+| `ALLOWED_ORIGIN` | `https://your-app.vercel.app` |
 
 5. Click **Deploy** ✅
 
@@ -68,8 +69,8 @@ Install [Vercel CLI](https://vercel.com/docs/cli) to simulate the serverless fun
 npm install -g vercel
 
 # In project root — create local .env
-cp .env.example .env
-# Edit .env and add your real GROK_API_KEY
+cp .env.examples .env
+# Edit .env and add your real GROQ_API_KEY
 
 # Start local dev (runs both Vite + serverless functions)
 vercel dev
