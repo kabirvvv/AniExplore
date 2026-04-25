@@ -1,5 +1,6 @@
 // GET /api/anime-search?q=one+piece&page=1
 // Searches AniPub directly — returns anipub_id so episodes never need title matching.
+// Fixes: fetch timeout, corrected hasNextPage logic, clamped page/limit.
 
 const ANIPUB = "https://anipub.xyz";
 
@@ -38,31 +39,32 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=60");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const { q, page = 1 } = req.query;
+  const { q } = req.query;
   if (!q?.trim()) return res.status(400).json({ error: "q param required" });
 
-  const headers = { Accept: "application/json", "Cache-Control": "no-cache" };
+  const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 24, 1), 50);
 
   try {
-    // GET /api/searchall/:name?page=N → { currentPage, AniData: [...] }
     const r = await fetch(
       `${ANIPUB}/api/searchall/${encodeURIComponent(q.trim())}?page=${page}`,
-      { headers }
+      {
+        signal:  AbortSignal.timeout(8000),
+        headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+      }
     );
     if (!r.ok) return res.status(r.status).json({ error: `AniPub error: ${r.status}` });
 
-    const json = await r.json();
-    // searchall → { currentPage, AniData }
-    // search    → flat array  [{ Name, Id, Image, finder }]
+    const json  = await r.json();
     const items = json.AniData || (Array.isArray(json) ? json : []);
-
-    const data = items.map(normalizeAnipub);
+    const data  = items.map(normalizeAnipub);
 
     return res.status(200).json({
       data,
       pagination: {
-        currentPage: json.currentPage || parseInt(page),
-        hasNextPage: data.length > 0,
+        currentPage: json.currentPage || page,
+        // Fixed: hasNextPage true only when we received a full page
+        hasNextPage: data.length >= limit,
         perPage:     data.length,
       },
     });
